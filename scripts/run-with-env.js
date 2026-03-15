@@ -42,15 +42,26 @@ function run() {
     process.exit(1);
   }
 
+  const inlineEnv = {};
+  while (args.length > 0 && /^[A-Za-z_][A-Za-z0-9_]*=/.test(args[0])) {
+    const [key, ...rest] = args.shift().split("=");
+    inlineEnv[key] = rest.join("=");
+  }
+  if (args.length === 0) {
+    console.error("[run-with-env] 缺少要执行的命令");
+    process.exit(1);
+  }
+
   const envFromFile = loadEnvFile(path.resolve(process.cwd(), ".env"));
   // 变量优先级：命令行/当前 shell > .env 默认值
-  const env = { ...envFromFile, ...process.env };
+  const env = { ...envFromFile, ...process.env, ...inlineEnv };
   const command = args[0];
   const commandArgs = args.slice(1);
 
   const child = spawn(command, commandArgs, {
     stdio: "inherit",
     env,
+    shell: process.platform === "win32",
   });
 
   child.on("error", (error) => {
