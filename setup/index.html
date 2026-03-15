@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self'; script-src 'self'; img-src 'self' data:;">
-  <title>OneClaw</title>
+  <title>虾虾</title>
   <link rel="stylesheet" href="setup.css">
 </head>
 <body>
@@ -61,8 +61,8 @@
     <!-- Step 1: 欢迎页 -->
     <section class="step active" id="step1">
       <div class="step-content step1-content">
-        <h1 data-i18n="welcome.title">Welcome to OneClaw</h1>
-        <p class="subtitle" data-i18n="welcome.subtitle">OneClaw is a one-click installer for OpenClaw</p>
+        <h1 data-i18n="welcome.title">Welcome to 虾虾</h1>
+        <p class="subtitle" data-i18n="welcome.subtitle">虾虾 is a one-click installer for OpenClaw</p>
 
         <ul class="welcome-features">
           <li>
@@ -102,24 +102,23 @@
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" class="lucide-icon"><use href="#icon-info"></use></svg>
           </div>
           <div class="info-card-text">
-            <span data-i18n="config.keyNotice">OneClaw does not provide API keys. Please click the link to purchase one from the provider's website.</span>
-            <a href="#" class="info-card-link" id="docsLink" data-i18n="config.docsLink">Tutorial Docs →</a>
+            <span data-i18n="config.keyNotice">虾虾 does not provide API keys. Please click the link to purchase one from the provider's website.</span>
           </div>
         </div>
 
         <!-- Provider 分段选择器 -->
         <div class="provider-tabs" id="providerTabs">
-          <button class="provider-tab active" data-provider="moonshot">Kimi</button>
-          <button class="provider-tab" data-provider="anthropic">Anthropic</button>
-          <button class="provider-tab" data-provider="openai">OpenAI</button>
-          <button class="provider-tab" data-provider="google">Google</button>
+          <button class="provider-tab active" data-provider="wanboshan">万博山</button>
+          <button class="provider-tab" data-provider="moonshot">Kimi</button>
+          <button class="provider-tab" data-provider="glm">GLM</button>
+          <button class="provider-tab" data-provider="minimax">MiniMax</button>
           <button class="provider-tab" data-provider="custom" data-i18n="config.custom">Other</button>
         </div>
 
         <!-- Moonshot 子平台选择 -->
         <div class="field-group hidden" id="subPlatformGroup">
           <label data-i18n="config.platform">Platform</label>
-          <div class="radio-group">
+          <div class="radio-group" id="subPlatformOptions">
             <label class="radio-item">
               <input type="radio" name="subPlatform" value="kimi-code" checked>
               <span>Kimi 会员订阅</span>
@@ -141,11 +140,7 @@
           <select id="customPreset">
             <option value="__placeholder__" data-i18n="config.presetPlaceholder">Please select</option>
             <option value="" data-i18n="config.presetManual">Manual</option>
-            <option value="minimax">MiniMax (Global)</option>
-            <option value="minimax-cn">MiniMax (中国)</option>
             <option value="zai-global">Z.AI</option>
-            <option value="zai-cn">智谱</option>
-            <option value="zai-cn-coding">智谱 CodingPlan</option>
             <option value="volcengine">火山引擎</option>
             <option value="volcengine-coding">火山引擎 CodingPlan</option>
             <option value="qwen">阿里云百炼</option>
@@ -242,7 +237,10 @@
           <svg width="28" height="28" viewBox="0 0 24 24" fill="none" class="lucide-icon check-icon"><use href="#icon-circle-check"></use></svg>
         </div>
         <h1 data-i18n="done.title">All Set!</h1>
-        <p class="subtitle" data-i18n="done.subtitle">OneClaw is ready. You can switch providers or models anytime in Settings. Enjoy!</p>
+        <p class="subtitle" data-i18n="done.subtitle">虾虾 is ready. You can switch providers or models anytime in Settings. Enjoy!</p>
+        <div class="done-success-banner">
+          <span data-i18n="done.successBanner">Your configuration is saved. Choose whether to open the main app now.</span>
+        </div>
 
         <div class="toggle-row hidden" id="launchAtLoginRow">
           <span class="toggle-label" data-i18n="done.launchAtLogin">Launch at login</span>
@@ -252,10 +250,13 @@
           </label>
         </div>
 
-        <button class="btn-primary" id="btnStart">
-          <span class="btn-text" data-i18n="done.start">Start OneClaw</span>
-          <span class="btn-spinner hidden" id="btnStartSpinner"></span>
-        </button>
+        <div class="done-actions">
+          <button class="btn-primary" id="btnStart">
+            <span class="btn-text" data-i18n="done.openNow">Finish and open 虾虾</span>
+            <span class="btn-spinner hidden" id="btnStartSpinner"></span>
+          </button>
+          <button class="btn-secondary" id="btnFinishLater" type="button" data-i18n="done.openLater">Finish, open later</button>
+        </div>
         <div class="status-msg hidden" id="doneStatus"></div>
         <button class="btn-secondary hidden" id="btnRetryPort">
           <span class="btn-text" data-i18n="done.retryPort">Try a different port</span>

@@ -49,6 +49,8 @@ export class GatewayProcess {
   private extraEnv: Record<string, string> = {};
   private lastCrashTime = 0;
   private onStateChange?: (state: GatewayState) => void;
+  private sawStartupLockConflict = false;
+  private startupReadyGeneration = 0;
 
   // 世代计数器：每次 spawn 递增，exit handler 只处理同代进程的退出
   private generation = 0;
@@ -93,6 +95,7 @@ export class GatewayProcess {
   // 启动 Gateway 子进程
   async start(): Promise<void> {
     if (this.state === "running" || this.state === "starting") return;
+    this.sawStartupLockConflict = false;
 
     // 前一次 stop 还未完成，等待其结束再启动
     if (this.state === "stopping") {
@@ -150,6 +153,7 @@ export class GatewayProcess {
 
     // 递增世代，标记本次 spawn 的身份
     const gen = ++this.generation;
+    this.startupReadyGeneration = 0;
 
     // 不传 --port 和 --bind，让 gateway 自行从配置文件/环境变量解析
     const args = [entry, "gateway", "run"];
@@ -182,11 +186,20 @@ export class GatewayProcess {
     // 转发日志（同时写入诊断文件）
     this.proc.stdout?.on("data", (d: Buffer) => {
       const s = d.toString();
+      if (this.containsStartupReadySignal(s)) {
+        this.markStartupReady(gen, "stdout");
+      }
       process.stdout.write(`[gateway] ${s}`);
       diagLog(`stdout: ${s.trimEnd()}`);
     });
     this.proc.stderr?.on("data", (d: Buffer) => {
       const s = d.toString();
+      if (this.containsStartupLockConflict(s)) {
+        this.sawStartupLockConflict = true;
+      }
+      if (this.containsStartupReadySignal(s)) {
+        this.markStartupReady(gen, "stderr");
+      }
       process.stderr.write(`[gateway] ${s}`);
       diagLog(`stderr: ${s.trimEnd()}`);
     });
@@ -214,10 +227,14 @@ export class GatewayProcess {
     });
 
     // 轮询健康检查
-    const healthy = await this.waitForHealth(HEALTH_TIMEOUT_MS, childPid);
+    const healthy = await this.waitForHealth(
+      HEALTH_TIMEOUT_MS,
+      childPid,
+      () => this.startupReadyGeneration === gen,
+    );
     if (healthy) {
       // 健康探测通过后，等一小段时间确认子进程没有立刻退出（排除旧进程误判）
-      await sleep(300);
+      await sleep(750);
       if (this.isChildAlive(childPid)) {
         diagLog("health check passed, child alive");
         this.setState("running");
@@ -227,14 +244,15 @@ export class GatewayProcess {
       }
     } else {
       diagLog("FATAL: health check timeout");
-      this.stop();
+      this.stop("health-timeout");
     }
   }
 
   // 停止 Gateway
-  stop(): void {
+  stop(reason = "manual"): void {
     if (!this.proc || this.state === "stopped" || this.state === "stopping") return;
 
+    diagLog(`stop requested: reason=${reason} state=${this.state} pid=${this.proc.pid ?? -1}`);
     this.setState("stopping");
     this.proc.kill("SIGTERM");
 
@@ -246,6 +264,21 @@ export class GatewayProcess {
         p.kill("SIGKILL");
       }
     }, 5000);
+  }
+
+  hasStartupLockConflict(): boolean {
+    return this.sawStartupLockConflict;
+  }
+
+  async cleanupResidualGateway(reason = "manual-retry"): Promise<void> {
+    const nodeBin = resolveNodeBin();
+    const entry = resolveGatewayEntry();
+    const cwd = resolveGatewayCwd();
+    diagLog(`cleanupResidualGateway: ${reason}`);
+    await this.stopExistingGateway(nodeBin, entry, cwd);
+    if (IS_WIN) {
+      this.killWindowsHelperProcesses();
+    }
   }
 
   // 停止已存在的旧 gateway（端口冲突时自动调用）
@@ -281,9 +314,36 @@ export class GatewayProcess {
     diagLog("WARN: 等待端口释放超时，继续尝试启动");
   }
 
+  private killWindowsHelperProcesses(): void {
+    const helperImages = new Set<string>([
+      path.basename(resolveNodeBin()),
+      "虾虾 Helper.exe",
+      "OneClaw Helper.exe",
+    ]);
+
+    try {
+      const { execFileSync } = require("child_process") as typeof import("child_process");
+      for (const image of helperImages) {
+        try {
+          diagLog(`taskkill helper: ${image}`);
+          execFileSync("taskkill", ["/IM", image, "/T", "/F"], {
+            timeout: 10_000,
+            stdio: "pipe",
+            windowsHide: true,
+          });
+        } catch (err: any) {
+          diagLog(`taskkill helper skipped: ${image} -> ${err?.message ?? err}`);
+        }
+      }
+    } catch (err: any) {
+      diagLog(`taskkill helper unavailable: ${err?.message ?? err}`);
+    }
+  }
+
   // 重启：等旧进程真正退出后再启动
   async restart(): Promise<void> {
-    this.stop();
+    diagLog("restart requested");
+    this.stop("restart");
     await this.waitForStopped(6000);
     await this.start();
   }
@@ -304,7 +364,11 @@ export class GatewayProcess {
   }
 
   // 轮询等待健康
-  private async waitForHealth(timeoutMs: number, childPid: number): Promise<boolean> {
+  private async waitForHealth(
+    timeoutMs: number,
+    childPid: number,
+    isReady?: () => boolean,
+  ): Promise<boolean> {
     if (childPid <= 0) return false;
 
     const deadline = Date.now() + timeoutMs;
@@ -312,6 +376,10 @@ export class GatewayProcess {
       if (!this.isChildAlive(childPid)) {
         diagLog(`health check aborted: child exited pid=${childPid}`);
         return false;
+      }
+      if (isReady?.()) {
+        diagLog(`health check satisfied by startup-ready signal pid=${childPid}`);
+        return true;
       }
       if (await this.probeHealth()) return true;
       await sleep(HEALTH_POLL_INTERVAL_MS);
@@ -334,6 +402,25 @@ export class GatewayProcess {
   // 仅当同一子进程仍存活时才认为启动检查有效，避免旧端口进程误判
   private isChildAlive(childPid: number): boolean {
     return !!this.proc && this.proc.pid === childPid && this.proc.exitCode == null;
+  }
+
+  private containsStartupLockConflict(message: string): boolean {
+    const text = message.toLowerCase();
+    return text.includes("gateway already running") || text.includes("lock timeout");
+  }
+
+  private containsStartupReadySignal(message: string): boolean {
+    const text = message.toLowerCase();
+    return text.includes("[gateway] listening on ws://127.0.0.1:") ||
+      text.includes("browser control listening on http://127.0.0.1:");
+  }
+
+  private markStartupReady(gen: number, source: string): void {
+    if (gen !== this.generation || this.startupReadyGeneration === gen) {
+      return;
+    }
+    this.startupReadyGeneration = gen;
+    diagLog(`startup ready signal detected: source=${source} gen=${gen}`);
   }
 
   private setState(s: GatewayState): void {

@@ -17,31 +17,15 @@
   // ── Provider 预设（与 setup.js 对齐） ──
 
   const PROVIDERS = {
-    anthropic: {
-      placeholder: "sk-ant-...",
-      platformUrl: "https://console.anthropic.com?utm_source=oneclaw",
-      models: [
-        "claude-sonnet-4-6",
-        "claude-opus-4-6",
-        "claude-sonnet-4-5-20250929",
-        "claude-opus-4-5-20251101",
-        "claude-haiku-4-5-20251001",
-      ],
-    },
     moonshot: {
       placeholder: "sk-...",
       models: ["kimi-k2.5", "kimi-k2-0905-preview"],
       hasSubPlatform: true,
     },
-    openai: {
+    wanboshan: {
       placeholder: "sk-...",
-      platformUrl: "https://platform.openai.com?utm_source=oneclaw",
-      models: ["gpt-5.4", "gpt-5.2", "gpt-5.2-codex"],
-    },
-    google: {
-      placeholder: "AI...",
-      platformUrl: "https://aistudio.google.com?utm_source=oneclaw",
-      models: ["gemini-3.1-pro-preview", "gemini-3.1-flash-lite-preview", "gemini-3-flash-preview"],
+      platformUrl: "https://onekey.dualseason.com",
+      models: ["gpt-5.4", "claude-opus-4-6", "claude-sonnet-4-6"],
     },
     custom: {
       placeholder: "",
@@ -56,6 +40,76 @@
   };
 
   const KIMI_CODE_MODELS = ["k2p5"];
+  const GLM_MODELS = ["glm-5", "glm-4.7", "glm-4.7-flash", "glm-4.7-flashx"];
+  const MINIMAX_MODELS = ["MiniMax-M2.5", "MiniMax-M2.5-highspeed"];
+
+  PROVIDERS.moonshot.defaultSubPlatform = "kimi-code";
+  PROVIDERS.moonshot.subPlatforms = {
+    "kimi-code": {
+      providerKey: "kimi-coding",
+      label: "Kimi 会员订阅",
+      platformUrl: "https://kimi.com/code?utm_source=oneclaw",
+      models: KIMI_CODE_MODELS,
+      linkKey: "provider.getKey.kimi-code",
+    },
+    "moonshot-cn": {
+      providerKey: "moonshot",
+      label: "Moonshot CN (中国)",
+      platformUrl: "https://platform.moonshot.cn?utm_source=oneclaw",
+      models: PROVIDERS.moonshot.models.slice(),
+      linkKey: "provider.getKey.moonshot-cn",
+    },
+    "moonshot-ai": {
+      providerKey: "moonshot",
+      label: "Moonshot AI (Global)",
+      platformUrl: "https://platform.moonshot.ai?utm_source=oneclaw",
+      models: PROVIDERS.moonshot.models.slice(),
+      linkKey: "provider.getKey.moonshot-ai",
+    },
+  };
+  delete PROVIDERS.moonshot.hasSubPlatform;
+
+  PROVIDERS.glm = {
+    placeholder: "...",
+    defaultSubPlatform: "glm-standard",
+    subPlatforms: {
+      "glm-standard": {
+        providerKey: "zai",
+        label: "GLM 官方",
+        platformUrl: "https://open.bigmodel.cn/",
+        models: GLM_MODELS,
+        linkKey: "provider.getKey.glm-standard",
+      },
+      "glm-coding": {
+        providerKey: "zai",
+        label: "GLM Coding Plan",
+        platformUrl: "https://open.bigmodel.cn/",
+        models: GLM_MODELS,
+        linkKey: "provider.getKey.glm-coding",
+      },
+    },
+  };
+
+  PROVIDERS.minimax = {
+    placeholder: "eyJ...",
+    defaultSubPlatform: "minimax-global",
+    subPlatforms: {
+      "minimax-global": {
+        providerKey: "minimax",
+        label: "MiniMax Global",
+        platformUrl: "https://platform.minimax.io/",
+        models: MINIMAX_MODELS,
+        linkKey: "provider.getKey.minimax-global",
+      },
+      "minimax-cn": {
+        providerKey: "minimax-cn",
+        label: "MiniMax 中国站",
+        platformUrl: "https://platform.minimaxi.com/",
+        models: MINIMAX_MODELS,
+        linkKey: "provider.getKey.minimax-cn",
+      },
+    },
+  };
 
   // Custom tab 内置预设
   const CUSTOM_PRESETS = {
@@ -117,6 +171,11 @@
     },
   };
 
+  delete CUSTOM_PRESETS.minimax;
+  delete CUSTOM_PRESETS["minimax-cn"];
+  delete CUSTOM_PRESETS["zai-cn"];
+  delete CUSTOM_PRESETS["zai-cn-coding"];
+
   // 已保存的各 provider 配置缓存（供切换时自动回填）
   var savedProviders = {};
 
@@ -152,6 +211,10 @@
       "provider.getKey.kimi-code": "Get Key (Kimi for Code) →",
       "provider.getKey.moonshot-cn": "Get Key (Moonshot.cn) →",
       "provider.getKey.moonshot-ai": "Get Key (Moonshot.ai) →",
+      "provider.getKey.glm-standard": "Get Key (GLM) →",
+      "provider.getKey.glm-coding": "Get Key (GLM Coding Plan) →",
+      "provider.getKey.minimax-global": "Get Key (MiniMax Global) →",
+      "provider.getKey.minimax-cn": "Get Key (MiniMax China) →",
       "provider.model": "Model",
       "provider.modelId": "Model ID",
       "provider.apiType": "API Type",
@@ -218,7 +281,7 @@
       "feishu.approvedRemoved": "Authorization removed",
       "feishu.kindUser": "User",
       "feishu.kindGroup": "Group",
-      "wecom.desc": "Connect WeCom so users can talk to OneClaw directly in WeCom",
+      "wecom.desc": "Connect WeCom so users can talk to 虾虾 directly in WeCom",
       "wecom.enabled": "Enable",
       "wecom.botId": "Bot ID",
       "wecom.secret": "Secret",
@@ -231,23 +294,23 @@
       "wecom.groupPolicyDisabled": "Ignore all group messages",
       "wecom.groupAllowFrom": "Group Allowlist",
       "wecom.groupAllowFromHint": "One group ID per line. This only applies when group access mode is allowlist",
-      "wecom.dmHint": "Pairing is recommended for direct messages. When set to open, OneClaw will automatically write allowFrom=[\"*\"]",
+      "wecom.dmHint": "Pairing is recommended for direct messages. When set to open, 虾虾 will automatically write allowFrom=[\"*\"]",
       "wecom.docs": "Plugin README →",
       "wecom.getKey": "Open WeCom Admin →",
       "wecom.save": "Save",
       "wecom.saving": "Saving…",
-      "dingtalk.desc": "Connect DingTalk so users can talk to OneClaw directly in DingTalk",
+      "dingtalk.desc": "Connect DingTalk so users can talk to 虾虾 directly in DingTalk",
       "dingtalk.enabled": "Enable",
       "dingtalk.clientId": "Client ID / AppKey",
       "dingtalk.clientSecret": "Client Secret / AppSecret",
       "dingtalk.sessionTimeout": "Session Timeout (ms)",
       "dingtalk.sessionTimeoutHint": "Default is 1800000 ms (30 minutes)",
-      "dingtalk.gatewayHint": "OneClaw will auto-use the current gateway token and enable the required chatCompletions HTTP endpoint",
+      "dingtalk.gatewayHint": "虾虾 will auto-use the current gateway token and enable the required chatCompletions HTTP endpoint",
       "dingtalk.docs": "Setup Guide →",
       "dingtalk.getKey": "Open DingTalk Open Platform →",
       "dingtalk.save": "Save",
       "dingtalk.saving": "Saving…",
-      "qq.desc": "Connect QQ Bot so users can talk to OneClaw directly in QQ",
+      "qq.desc": "Connect QQ Bot so users can talk to 虾虾 directly in QQ",
       "qq.enabled": "Enable",
       "qq.appId": "QQ Bot App ID",
       "qq.clientSecret": "Client Secret",
@@ -265,14 +328,14 @@
       "error.noAppSecret": "Please enter the App Secret",
       "error.noWecomBotId": "Please enter the WeCom Bot ID",
       "error.noWecomSecret": "Please enter the WeCom Secret",
-      "error.wecomNotBundled": "WeCom plugin is missing. Please reinstall OneClaw",
+      "error.wecomNotBundled": "WeCom plugin is missing. Please reinstall 虾虾",
       "error.noDingtalkClientId": "Please enter the DingTalk Client ID / AppKey",
       "error.noDingtalkClientSecret": "Please enter the DingTalk Client Secret / AppSecret",
       "error.invalidDingtalkSessionTimeout": "Please enter a valid session timeout in milliseconds",
-      "error.dingtalkNotBundled": "DingTalk connector is missing. Please reinstall OneClaw",
+      "error.dingtalkNotBundled": "DingTalk connector is missing. Please reinstall 虾虾",
       "error.noQqAppId": "Please enter the QQ Bot App ID",
       "error.noQqClientSecret": "Please enter the QQ Bot Client Secret",
-      "error.qqNotBundled": "QQ Bot component is missing. Please reinstall OneClaw",
+      "error.qqNotBundled": "QQ Bot component is missing. Please reinstall 虾虾",
       "error.noKey": "Please enter your API key",
       "error.noBaseUrl": "Please enter the Base URL",
       "error.noModelId": "Please enter the Model ID",
@@ -283,7 +346,7 @@
       "nav.appearance": "Appearance",
       "nav.backup": "Backup & Restore",
       "kimi.title": "KimiClaw",
-      "kimi.desc": "Control OneClaw remotely via Kimi",
+      "kimi.desc": "Control 虾虾 remotely via Kimi",
       "kimi.enabled": "Enable",
       "kimi.getGuide": "Go to kimi.com/bot →",
       "kimi.guideText": "Click 'Associate existing OpenClaw' → copy command → paste below",
@@ -325,7 +388,7 @@
       "advanced.cliUninstallDone": "CLI command uninstalled",
       "advanced.cliUnavailable": "CLI action is not available in this app version",
       "advanced.cliOpFailed": "CLI operation failed",
-      "advanced.cliUninstallConfirm": "Uninstall the OneClaw terminal command now?",
+      "advanced.cliUninstallConfirm": "Uninstall the 虾虾 terminal command now?",
       "advanced.clawHubRegistry": "ClawHub Registry",
       "advanced.clawHubRegistryPlaceholder": "https://clawhub.ai",
       "advanced.save": "Save",
@@ -373,7 +436,7 @@
       "nav.about": "Software Update",
       "about.title": "Software Update",
       "about.versionInfo": "Version Information",
-      "about.oneClawVersion": "OneClaw Version",
+      "about.oneClawVersion": "虾虾 Version",
       "about.openClawVersion": "OpenClaw Version",
       "about.updateTitle": "Software Update",
       "about.checkUpdate": "Check for Updates",
@@ -391,7 +454,7 @@
       "nav.chat": "聊天集成",
       "nav.feishu": "飞书集成",
       "chat.title": "聊天集成",
-      "chat.desc": "连接飞书、企业微信、钉钉、Kimi 或 QQ 让用户直接在聊天软件里和 OneClaw 对话",
+      "chat.desc": "连接飞书、企业微信、钉钉、Kimi 或 QQ 让用户直接在聊天软件里和 虾虾 对话",
       "chat.platformFeishu": "飞书",
       "chat.platformFeishuMeta": "Lark / 飞书机器人",
       "chat.platformWecom": "企业微信",
@@ -413,6 +476,10 @@
       "provider.getKey.kimi-code": "购买会员获取密钥 (Kimi for Code) →",
       "provider.getKey.moonshot-cn": "获取密钥 (Moonshot.cn) →",
       "provider.getKey.moonshot-ai": "获取密钥 (Moonshot.ai) →",
+      "provider.getKey.glm-standard": "获取密钥 (GLM 官方) →",
+      "provider.getKey.glm-coding": "获取密钥 (GLM Coding Plan) →",
+      "provider.getKey.minimax-global": "获取密钥 (MiniMax Global) →",
+      "provider.getKey.minimax-cn": "获取密钥 (MiniMax 中国站) →",
       "provider.model": "模型",
       "provider.modelId": "模型 ID",
       "provider.apiType": "接口类型",
@@ -479,7 +546,7 @@
       "feishu.approvedRemoved": "已移除授权",
       "feishu.kindUser": "用户",
       "feishu.kindGroup": "群聊",
-      "wecom.desc": "连接企业微信机器人 让用户直接在企业微信里和 OneClaw 对话",
+      "wecom.desc": "连接企业微信机器人 让用户直接在企业微信里和 虾虾 对话",
       "wecom.enabled": "启用状态",
       "wecom.botId": "Bot ID",
       "wecom.secret": "Secret",
@@ -492,23 +559,23 @@
       "wecom.groupPolicyDisabled": "不接收群消息",
       "wecom.groupAllowFrom": "群聊白名单",
       "wecom.groupAllowFromHint": "每行一个群 ID。仅在“仅白名单群可访问”模式下生效",
-      "wecom.dmHint": "私聊建议优先使用“先配对再访问”；切到“所有人可直接访问”时 OneClaw 会自动写入 allowFrom=[\"*\"]",
+      "wecom.dmHint": "私聊建议优先使用“先配对再访问”；切到“所有人可直接访问”时 虾虾 会自动写入 allowFrom=[\"*\"]",
       "wecom.docs": "插件说明 →",
       "wecom.getKey": "打开企业微信后台 →",
       "wecom.save": "保存",
       "wecom.saving": "保存中…",
-      "dingtalk.desc": "连接钉钉 让用户直接在钉钉里和 OneClaw 对话",
+      "dingtalk.desc": "连接钉钉 让用户直接在钉钉里和 虾虾 对话",
       "dingtalk.enabled": "启用状态",
       "dingtalk.clientId": "Client ID / AppKey",
       "dingtalk.clientSecret": "Client Secret / AppSecret",
       "dingtalk.sessionTimeout": "会话超时（毫秒）",
       "dingtalk.sessionTimeoutHint": "默认 1800000 毫秒（30 分钟）",
-      "dingtalk.gatewayHint": "OneClaw 会自动复用当前 Gateway token 并补齐所需的 chatCompletions HTTP 端点",
+      "dingtalk.gatewayHint": "虾虾 会自动复用当前 Gateway token 并补齐所需的 chatCompletions HTTP 端点",
       "dingtalk.docs": "配置指南 →",
       "dingtalk.getKey": "打开钉钉开放平台 →",
       "dingtalk.save": "保存",
       "dingtalk.saving": "保存中…",
-      "qq.desc": "连接 QQ Bot 让用户直接在 QQ 中和 OneClaw 对话",
+      "qq.desc": "连接 QQ Bot 让用户直接在 QQ 中和 虾虾 对话",
       "qq.enabled": "启用状态",
       "qq.appId": "QQ Bot App ID",
       "qq.clientSecret": "Client Secret",
@@ -526,14 +593,14 @@
       "error.noAppSecret": "请输入应用密钥",
       "error.noWecomBotId": "请输入企业微信 Bot ID",
       "error.noWecomSecret": "请输入企业微信 Secret",
-      "error.wecomNotBundled": "企业微信插件组件缺失 请重新安装 OneClaw",
+      "error.wecomNotBundled": "企业微信插件组件缺失 请重新安装 虾虾",
       "error.noDingtalkClientId": "请输入钉钉 Client ID / AppKey",
       "error.noDingtalkClientSecret": "请输入钉钉 Client Secret / AppSecret",
       "error.invalidDingtalkSessionTimeout": "请输入有效的会话超时毫秒值",
-      "error.dingtalkNotBundled": "钉钉连接器组件缺失 请重新安装 OneClaw",
+      "error.dingtalkNotBundled": "钉钉连接器组件缺失 请重新安装 虾虾",
       "error.noQqAppId": "请输入 QQ Bot App ID",
       "error.noQqClientSecret": "请输入 QQ Bot Client Secret",
-      "error.qqNotBundled": "QQ Bot 组件缺失 请重新安装 OneClaw",
+      "error.qqNotBundled": "QQ Bot 组件缺失 请重新安装 虾虾",
       "error.noKey": "请输入 API 密钥",
       "error.noBaseUrl": "请输入接口地址",
       "error.noModelId": "请输入模型 ID",
@@ -544,7 +611,7 @@
       "nav.appearance": "外观显示",
       "nav.backup": "备份恢复",
       "kimi.title": "KimiClaw",
-      "kimi.desc": "通过 Kimi 远程遥控 OneClaw",
+      "kimi.desc": "通过 Kimi 远程遥控 虾虾",
       "kimi.enabled": "启用状态",
       "kimi.getGuide": "前往 kimi.com/bot →",
       "kimi.guideText": '点击"关联已有 OpenClaw" → 复制命令 → 粘贴到下方输入框',
@@ -586,7 +653,7 @@
       "advanced.cliUninstallDone": "CLI 命令已卸载",
       "advanced.cliUnavailable": "当前应用版本不支持该 CLI 操作",
       "advanced.cliOpFailed": "CLI 操作失败",
-      "advanced.cliUninstallConfirm": "确认要卸载 OneClaw 终端命令吗？",
+      "advanced.cliUninstallConfirm": "确认要卸载 虾虾 终端命令吗？",
       "advanced.clawHubRegistry": "ClawHub Registry",
       "advanced.clawHubRegistryPlaceholder": "https://clawhub.ai",
       "advanced.save": "保存",
@@ -634,7 +701,7 @@
       "nav.about": "软件更新",
       "about.title": "软件更新",
       "about.versionInfo": "版本信息",
-      "about.oneClawVersion": "OneClaw 版本",
+      "about.oneClawVersion": "虾虾 版本",
       "about.openClawVersion": "OpenClaw 版本",
       "about.updateTitle": "软件更新",
       "about.checkUpdate": "检查更新",
@@ -663,6 +730,7 @@
     providerTabs: $("#providerTabs"),
     platformLink: $("#platformLink"),
     subPlatformGroup: $("#subPlatformGroup"),
+    subPlatformOptions: $("#subPlatformOptions"),
     baseURLGroup: $("#baseURLGroup"),
     apiKeyGroup: $("#apiKeyGroup"),
     apiKeyInput: $("#apiKey"),
@@ -810,7 +878,7 @@
 
   // ── 状态 ──
 
-  let currentProvider = "moonshot";
+  let currentProvider = "wanboshan";
   let saving = false;
   let currentChatPlatform = "feishu";
   let chSaving = false;
@@ -1001,28 +1069,100 @@
 
   // ── Provider 切换 ──
 
-  function getSubPlatform() {
+  function getProviderSubPlatforms(provider) {
+    return PROVIDERS[provider] && PROVIDERS[provider].subPlatforms
+      ? PROVIDERS[provider].subPlatforms
+      : null;
+  }
+
+  function hasSubPlatformOptions(provider) {
+    const subPlatforms = getProviderSubPlatforms(provider);
+    return !!(subPlatforms && Object.keys(subPlatforms).length);
+  }
+
+  function getDefaultSubPlatform(provider) {
+    const config = PROVIDERS[provider];
+    if (config && config.defaultSubPlatform) {
+      return config.defaultSubPlatform;
+    }
+    const subPlatforms = getProviderSubPlatforms(provider);
+    return subPlatforms ? Object.keys(subPlatforms)[0] : "";
+  }
+
+  function getSubPlatform(provider) {
+    const targetProvider = provider || currentProvider;
+    const subPlatforms = getProviderSubPlatforms(targetProvider);
+    if (!subPlatforms) return "";
     const checked = document.querySelector('input[name="subPlatform"]:checked');
-    return checked ? checked.value : "kimi-code";
+    if (checked && subPlatforms[checked.value]) {
+      return checked.value;
+    }
+    return getDefaultSubPlatform(targetProvider);
+  }
+
+  function getSelectedSubPlatformConfig(provider) {
+    const subPlatforms = getProviderSubPlatforms(provider || currentProvider);
+    if (!subPlatforms) return null;
+    return subPlatforms[getSubPlatform(provider)] || null;
+  }
+
+  function getProviderConfigKey(provider, subPlatform) {
+    if (provider === "custom") {
+      var presetKey = els.customPreset.value;
+      var preset = presetKey ? CUSTOM_PRESETS[presetKey] : null;
+      return preset ? preset.providerKey : "custom";
+    }
+    var subPlatformConfig = getProviderSubPlatforms(provider);
+    if (subPlatformConfig) {
+      var selected = subPlatform || getSubPlatform(provider);
+      var option = subPlatformConfig[selected] || subPlatformConfig[getDefaultSubPlatform(provider)];
+      return option ? option.providerKey : provider;
+    }
+    return provider;
+  }
+
+  function renderSubPlatformOptions(provider, preferredSubPlatform) {
+    if (!els.subPlatformOptions) return;
+    const subPlatforms = getProviderSubPlatforms(provider);
+    els.subPlatformOptions.innerHTML = "";
+    if (!subPlatforms) return;
+
+    const selected = subPlatforms[preferredSubPlatform]
+      ? preferredSubPlatform
+      : getDefaultSubPlatform(provider);
+
+    Object.entries(subPlatforms).forEach(function ([value, option]) {
+      var label = document.createElement("label");
+      label.className = "radio-item";
+
+      var input = document.createElement("input");
+      input.type = "radio";
+      input.name = "subPlatform";
+      input.value = value;
+      input.checked = value === selected;
+
+      var text = document.createElement("span");
+      text.textContent = option.label;
+
+      label.appendChild(input);
+      label.appendChild(text);
+      els.subPlatformOptions.appendChild(label);
+    });
+  }
+
+  function syncCustomPresetOptions() {
+    Array.from(els.customPreset.options).forEach(function (option) {
+      if (!option.value || option.value === "__placeholder__") return;
+      if (!CUSTOM_PRESETS[option.value]) {
+        option.remove();
+      }
+    });
   }
 
   // 根据 provider + subPlatform 查找已保存的配置
   function lookupSavedProvider(provider, subPlatform) {
-    if (provider === "moonshot") {
-      var sub = subPlatform || getSubPlatform();
-      var provKey = sub === "kimi-code" ? "kimi-coding" : "moonshot";
-      return savedProviders[provKey] || null;
-    }
-    // Custom 预设：用预设的 providerKey 查找已保存配置
-    if (provider === "custom") {
-      var presetKey = els.customPreset.value;
-      var preset = presetKey ? CUSTOM_PRESETS[presetKey] : null;
-      if (preset) {
-        return savedProviders[preset.providerKey] || savedProviders["custom"] || null;
-      }
-      return savedProviders["custom"] || null;
-    }
-    return savedProviders[provider] || null;
+    var configKey = getProviderConfigKey(provider, subPlatform);
+    return savedProviders[configKey] || null;
   }
 
   // 用已保存的配置回填 UI（apiKey、model、custom 字段）
@@ -1050,7 +1190,7 @@
     }
   }
 
-  function switchProvider(provider) {
+  function switchProvider(provider, preferredSubPlatform) {
     currentProvider = provider;
     const config = PROVIDERS[provider];
 
@@ -1061,11 +1201,11 @@
     els.apiKeyInput.placeholder = config.placeholder;
     hideMsg();
 
+    renderSubPlatformOptions(provider, preferredSubPlatform);
     updatePlatformLink();
-    toggleEl(els.subPlatformGroup, config.hasSubPlatform === true);
+    toggleEl(els.subPlatformGroup, hasSubPlatformOptions(provider));
 
     const isCustom = provider === "custom";
-    // 预设下拉仅 Custom tab 显示
     toggleEl(els.customPresetGroup, isCustom);
 
     if (isCustom) {
@@ -1083,8 +1223,7 @@
       updateModels();
     }
 
-    // 从缓存回填已保存的 provider 配置
-    fillSavedProviderFields(provider);
+    fillSavedProviderFields(provider, getSubPlatform(provider));
   }
 
   // 自定义 Model ID 哨兵值（下拉最后一项）
@@ -1164,19 +1303,17 @@
   }
 
   function updatePlatformLink() {
-    var url = PROVIDERS[currentProvider].platformUrl || "";
-    if (currentProvider === "moonshot") {
-      url = SUB_PLATFORM_URLS[getSubPlatform()] || "";
-    }
-    // Custom 预设的平台链接
+    var subPlatformConfig = getSelectedSubPlatformConfig(currentProvider);
+    var url = subPlatformConfig
+      ? subPlatformConfig.platformUrl || ""
+      : (PROVIDERS[currentProvider].platformUrl || "");
     if (currentProvider === "custom") {
-      var preset = CUSTOM_PRESETS[els.customPreset.value];
-      url = preset ? preset.platformUrl : "";
+      var customPreset = CUSTOM_PRESETS[els.customPreset.value];
+      url = customPreset ? customPreset.platformUrl : "";
     }
     if (url) {
-      // Moonshot 子平台显示带平台名的链接文本
-      var linkKey = currentProvider === "moonshot"
-        ? "provider.getKey." + getSubPlatform()
+      var linkKey = subPlatformConfig && subPlatformConfig.linkKey
+        ? subPlatformConfig.linkKey
         : "provider.getKey";
       els.platformLink.textContent = t(linkKey);
       els.platformLink.dataset.url = url;
@@ -1187,12 +1324,9 @@
   }
 
   function updateModels() {
-    const config = PROVIDERS[currentProvider];
-    if (currentProvider === "moonshot" && getSubPlatform() === "kimi-code") {
-      populatePresetModels(KIMI_CODE_MODELS);
-    } else {
-      populatePresetModels(config.models);
-    }
+    const providerConfig = PROVIDERS[currentProvider];
+    const subPlatformConfig = getSelectedSubPlatformConfig(currentProvider);
+    populatePresetModels(subPlatformConfig ? subPlatformConfig.models : providerConfig.models);
   }
 
   function populateModels(models) {
@@ -1336,7 +1470,7 @@
       }
     }
 
-    if (currentProvider === "moonshot") {
+    if (hasSubPlatformOptions(currentProvider)) {
       params.subPlatform = getSubPlatform();
     }
 
@@ -2982,6 +3116,12 @@
 
   // 取对应 provider/subPlatform 的预设模型列表
   function getPresetModels(provider, subPlatform) {
+    var subPlatforms = getProviderSubPlatforms(provider);
+    if (subPlatforms) {
+      var selected = subPlatform || getDefaultSubPlatform(provider);
+      var option = subPlatforms[selected] || subPlatforms[getDefaultSubPlatform(provider)];
+      return option ? option.models : [];
+    }
     if (provider === "moonshot" && subPlatform === "kimi-code") return KIMI_CODE_MODELS;
     var cfg = PROVIDERS[provider];
     return cfg ? cfg.models : [];
@@ -2989,11 +3129,23 @@
 
   // provider + subPlatform → 人类可读名称
   function getProviderDisplayName(provider, subPlatform) {
+    var subPlatforms = getProviderSubPlatforms(provider);
+    if (subPlatforms) {
+      var selected = subPlatform || getDefaultSubPlatform(provider);
+      var option = subPlatforms[selected] || subPlatforms[getDefaultSubPlatform(provider)];
+      if (option) return option.label;
+    }
     if (provider === "moonshot") {
       var names = { "moonshot-cn": "Moonshot CN", "moonshot-ai": "Moonshot AI", "kimi-code": "Kimi 会员订阅" };
       return names[subPlatform] || "Kimi";
     }
-    var map = { anthropic: "Anthropic", openai: "OpenAI", google: "Google", custom: "Custom" };
+    var map = {
+      wanboshan: "万博山",
+      anthropic: "Anthropic",
+      openai: "OpenAI",
+      google: "Google",
+      custom: "Custom",
+    };
     return map[provider] || provider;
   }
 
@@ -3012,7 +3164,8 @@
       }
 
       var provider = data.provider;
-      if (!provider || !PROVIDERS[provider]) return;
+      if (!provider) return;
+      var uiProvider = PROVIDERS[provider] ? provider : "custom";
 
       // Moonshot 先选子平台（影响后续模型列表）
       if (provider === "moonshot" && data.subPlatform) {
@@ -3020,15 +3173,20 @@
         if (radio) radio.checked = true;
       }
 
-      switchProvider(provider);
+      switchProvider(uiProvider, data.subPlatform);
 
-      // apiKey 填入 value（完整值，type=password 自动掩码显示）
-      if (data.apiKey) {
-        els.apiKeyInput.value = data.apiKey;
-      }
+        // apiKey 填入 value（完整值，type=password 自动掩码显示）
+        if (data.apiKey) {
+          els.apiKeyInput.value = data.apiKey;
+        }
 
-      // Custom 预设恢复：后端返回 customPreset 时选中对应下拉项
-      if (provider === "custom" && data.customPreset && CUSTOM_PRESETS[data.customPreset]) {
+        if (uiProvider === "custom" && !data.customPreset) {
+          els.customPreset.value = "";
+          applyCustomPreset("");
+        }
+
+        // Custom 预设恢复：后端返回 customPreset 时选中对应下拉项
+        if (uiProvider === "custom" && data.customPreset && CUSTOM_PRESETS[data.customPreset]) {
         els.customPreset.value = data.customPreset;
         applyCustomPreset(data.customPreset);
 
@@ -3045,11 +3203,11 @@
             toggleEl(els.customModelInputGroup, true);
           }
         }
-      } else if (provider !== "custom") {
+      } else if (uiProvider !== "custom") {
         // 用配置中的模型列表 + 预设合并后重新填充下拉
         var merged = buildMergedModelList(
           data.configuredModels,
-          provider,
+          uiProvider,
           data.subPlatform
         );
         if (merged.length > 0) {
@@ -3481,11 +3639,11 @@
     // Moonshot 子平台切换
     if (els.subPlatformGroup) {
       els.subPlatformGroup.addEventListener("change", function () {
-        if (currentProvider === "moonshot") {
+        if (hasSubPlatformOptions(currentProvider)) {
           updateModels();
           updatePlatformLink();
           // 切换子平台时回填对应配置
-          fillSavedProviderFields("moonshot", getSubPlatform());
+          fillSavedProviderFields(currentProvider, getSubPlatform());
         }
       });
     }
@@ -3942,9 +4100,10 @@
   function init() {
     detectLang();
     applyI18n();
+    syncCustomPresetOptions();
 
     bindEvents();
-    switchProvider("moonshot");
+    switchProvider("wanboshan");
     switchTab(initialTab || "provider");
     switchChatPlatform(initialChatPlatform || "feishu");
     applyRecoveryNotice(startupNotice);

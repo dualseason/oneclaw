@@ -5,11 +5,11 @@ import * as analytics from "./analytics";
 import { getLaunchAtLoginState, setLaunchAtLoginEnabled } from "./launch-at-login";
 import {
   PROVIDER_PRESETS,
-  MOONSHOT_SUB_PLATFORMS,
   CUSTOM_PROVIDER_PRESETS,
   verifyProvider,
   buildProviderConfig,
-  saveMoonshotConfig,
+  getBuiltinSubPlatform,
+  saveSubPlatformConfig,
   readUserConfig,
   writeUserConfig,
 } from "./provider-config";
@@ -187,10 +187,12 @@ export function registerSetupIpc(deps: SetupIpcDeps): void {
         config.agents.defaults.compaction.mode = "safeguard";
 
         // Moonshot 子平台需要特殊处理
-        if (provider === "moonshot") {
-          saveMoonshotConfig(config, apiKey, modelID, subPlatform);
+        const builtinSubPlatform = getBuiltinSubPlatform(provider, subPlatform);
+
+        if (builtinSubPlatform) {
+          saveSubPlatformConfig(config, provider, apiKey, modelID, subPlatform);
           // 配置 kimi-code 时自动启用搜索插件
-          if (subPlatform === "kimi-code") {
+          if (provider === "moonshot" && subPlatform === "kimi-code") {
             saveKimiSearchConfig(config, { enabled: true });
           }
         } else {
@@ -261,9 +263,15 @@ export function registerSetupIpc(deps: SetupIpcDeps): void {
   });
 
   // ── Setup 完成（Gateway 启动 + 窗口切换由 setOnComplete 回调统一处理） ──
-  ipcMain.handle("setup:complete", async (_event, params?: { installCli?: boolean; launchAtLogin?: boolean; sessionMemory?: boolean }) => {
+  ipcMain.handle("setup:complete", async (_event, params?: {
+    installCli?: boolean;
+    launchAtLogin?: boolean;
+    sessionMemory?: boolean;
+    openMainWindow?: boolean;
+  }) => {
     const launchAtLogin = typeof params?.launchAtLogin === "boolean" ? params.launchAtLogin : undefined;
     const sessionMemory = params?.sessionMemory !== false;
+    const openMainWindow = params?.openMainWindow !== false;
     return runTrackedSetupAction("complete", { launch_at_login: launchAtLogin, session_memory: sessionMemory }, async () => {
       if (typeof launchAtLogin === "boolean") {
         setLaunchAtLoginEnabled(app, launchAtLogin);
@@ -285,7 +293,7 @@ export function registerSetupIpc(deps: SetupIpcDeps): void {
         log.error(`[setup] 写入 hooks 配置失败: ${err?.message ?? err}`);
       }
 
-      const ok = await setupManager.complete();
+      const ok = await setupManager.complete({ openMainWindow });
       if (!ok) {
         return {
           success: false,
@@ -327,7 +335,7 @@ function buildSetupCompletedProps(params: {
   const { provider, modelID, baseURL, subPlatform } = params;
 
   // Moonshot 子平台用实际写入的 providerKey 查配置
-  const sub = subPlatform ? MOONSHOT_SUB_PLATFORMS[subPlatform] : undefined;
+  const sub = getBuiltinSubPlatform(provider, subPlatform);
   const effectiveKey = sub?.providerKey ?? provider;
   const configBaseUrl = config?.models?.providers?.[effectiveKey]?.baseUrl;
   const rawBaseUrl =

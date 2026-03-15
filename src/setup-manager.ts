@@ -5,11 +5,11 @@ import * as analytics from "./analytics";
 // Setup 窗口生命周期管理
 export class SetupManager {
   private setupWin: BrowserWindow | null = null;
-  private onComplete?: () => boolean | Promise<boolean>;
+  private onComplete?: (options?: { openMainWindow?: boolean }) => boolean | Promise<boolean>;
   private completing = false;
 
   // 注册完成回调（支持 async）
-  setOnComplete(cb: () => boolean | Promise<boolean>): void {
+  setOnComplete(cb: (options?: { openMainWindow?: boolean }) => boolean | Promise<boolean>): void {
     this.onComplete = cb;
   }
 
@@ -17,7 +17,7 @@ export class SetupManager {
   showSetup(): void {
     // 标题本地化
     const lang = app.getLocale().startsWith("zh") ? "zh" : "en";
-    const title = lang === "zh" ? "OneClaw 安装引导" : "OneClaw Setup";
+    const title = lang === "zh" ? "虾虾 安装引导" : "虾虾 Setup";
 
     this.setupWin = new BrowserWindow({
       width: 580,
@@ -52,12 +52,12 @@ export class SetupManager {
   }
 
   // Setup 完成：先执行启动回调，成功后再关闭 Setup（避免用户看到空白等待）
-  async complete(): Promise<boolean> {
+  async complete(options?: { openMainWindow?: boolean }): Promise<boolean> {
     if (this.completing) return false;
     this.completing = true;
 
     try {
-      const ok = this.onComplete ? await this.onComplete() : true;
+      const ok = this.onComplete ? await this.onComplete(options) : true;
       if (!ok) return false;
 
       if (this.setupWin && !this.setupWin.isDestroyed()) {

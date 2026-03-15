@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self'; script-src 'self'; img-src 'self' data:;">
-  <title>OneClaw</title>
+  <title>虾虾</title>
   <link rel="stylesheet" href="settings.css">
 </head>
 <body>
@@ -83,17 +83,17 @@
 
         <!-- Provider 分段选择器 -->
         <div class="provider-tabs" id="providerTabs">
-          <button class="provider-tab active" data-provider="moonshot">Kimi</button>
-          <button class="provider-tab" data-provider="anthropic">Anthropic</button>
-          <button class="provider-tab" data-provider="openai">OpenAI</button>
-          <button class="provider-tab" data-provider="google">Google</button>
+          <button class="provider-tab active" data-provider="wanboshan">万博山</button>
+          <button class="provider-tab" data-provider="moonshot">Kimi</button>
+          <button class="provider-tab" data-provider="glm">GLM</button>
+          <button class="provider-tab" data-provider="minimax">MiniMax</button>
           <button class="provider-tab" data-provider="custom" data-i18n="provider.custom">Other</button>
         </div>
 
         <!-- Moonshot 子平台 -->
         <div class="field-group hidden" id="subPlatformGroup">
           <label data-i18n="provider.platform">Platform</label>
-          <div class="radio-group">
+          <div class="radio-group" id="subPlatformOptions">
             <label class="radio-item">
               <input type="radio" name="subPlatform" value="kimi-code" checked>
               <span>Kimi 会员订阅</span>
@@ -115,11 +115,7 @@
           <select id="customPreset">
             <option value="__placeholder__" data-i18n="provider.presetPlaceholder">Please select</option>
             <option value="" data-i18n="provider.presetManual">Manual</option>
-            <option value="minimax">MiniMax (Global)</option>
-            <option value="minimax-cn">MiniMax (中国)</option>
             <option value="zai-global">Z.AI</option>
-            <option value="zai-cn">智谱</option>
-            <option value="zai-cn-coding">智谱 CodingPlan</option>
             <option value="volcengine">火山引擎</option>
             <option value="volcengine-coding">火山引擎 CodingPlan</option>
             <option value="qwen">阿里云百炼</option>
@@ -386,7 +382,7 @@
               <div class="channel-desc-row">
                 <div class="chat-panel-copy">
                   <div class="chat-panel-title" data-i18n="chat.platformDingtalk">DingTalk</div>
-                  <p class="desc" data-i18n="dingtalk.desc">Connect DingTalk so users can talk to OneClaw directly in DingTalk.</p>
+          <p class="desc" data-i18n="dingtalk.desc">Connect DingTalk so users can talk to 虾虾 directly in DingTalk.</p>
                 </div>
                 <div class="channel-links">
                   <a href="#" class="platform-link" id="dingtalkDocsLink" data-i18n="dingtalk.docs">Setup Guide →</a>
@@ -422,7 +418,7 @@
                   <p class="field-hint" data-i18n="dingtalk.sessionTimeoutHint">Default is 1800000 ms (30 minutes).</p>
                 </div>
 
-                <p class="field-hint" data-i18n="dingtalk.gatewayHint">OneClaw will auto-use the current gateway token and enable the required chatCompletions HTTP endpoint.</p>
+          <p class="field-hint" data-i18n="dingtalk.gatewayHint">虾虾 will auto-use the current gateway token and enable the required chatCompletions HTTP endpoint.</p>
               </div>
 
               <div class="msg-box hidden" id="dingtalkMsgBox"></div>
@@ -433,7 +429,7 @@
               <div class="channel-desc-row">
                 <div class="chat-panel-copy">
                   <div class="chat-panel-title" data-i18n="chat.platformWecom">企业微信</div>
-                  <p class="desc" data-i18n="wecom.desc">连接企业微信机器人，让用户直接在企业微信里和 OneClaw 对话。</p>
+          <p class="desc" data-i18n="wecom.desc">连接企业微信机器人，让用户直接在企业微信里和 虾虾 对话。</p>
                 </div>
                 <div class="channel-links">
                   <a href="#" class="platform-link" id="wecomDocsLink" data-i18n="wecom.docs">插件说明 →</a>
@@ -486,7 +482,7 @@
                   <p class="field-hint" data-i18n="wecom.groupAllowFromHint">每行一个群 ID。只有在群聊访问模式为“仅白名单群可访问”时才会生效。</p>
                 </div>
 
-                <p class="field-hint" data-i18n="wecom.dmHint">私聊默认建议使用“先配对再访问”；切到“所有人可直接访问”时，OneClaw 会自动写入 allowFrom=["*"]。</p>
+          <p class="field-hint" data-i18n="wecom.dmHint">私聊默认建议使用“先配对再访问”；切到“所有人可直接访问”时，虾虾 会自动写入 allowFrom=["*"]。</p>
 
                 <div id="wecomPairingSection" class="hidden">
                   <div class="pairing-panel">
@@ -517,7 +513,7 @@
               <div class="channel-desc-row">
                 <div class="chat-panel-copy">
                   <div class="chat-panel-title" data-i18n="chat.platformKimi">KimiClaw</div>
-                  <p class="desc" data-i18n="kimi.desc">Control OneClaw remotely via Kimi</p>
+          <p class="desc" data-i18n="kimi.desc">Control 虾虾 remotely via Kimi</p>
                 </div>
                 <div class="channel-links">
                   <a href="#" class="platform-link" id="kimiBotPageLink" data-i18n="kimi.getGuide">Go to kimi.com/bot →</a>
@@ -554,7 +550,7 @@
               <div class="channel-desc-row">
                 <div class="chat-panel-copy">
                   <div class="chat-panel-title" data-i18n="chat.platformQq">QQ</div>
-                  <p class="desc" data-i18n="qq.desc">Connect QQ Bot so users can talk to OneClaw directly in QQ.</p>
+          <p class="desc" data-i18n="qq.desc">Connect QQ Bot so users can talk to 虾虾 directly in QQ.</p>
                 </div>
                 <div class="channel-links">
                   <a href="#" class="platform-link" id="qqConsoleLink" data-i18n="qq.getKey">Open QQ Open Platform →</a>
@@ -847,7 +843,7 @@
         <div class="backup-card">
           <div class="backup-card-title" data-i18n="about.versionInfo">Version Information</div>
           <div class="toggle-row">
-            <span class="toggle-label" data-i18n="about.oneClawVersion">OneClaw Version</span>
+            <span class="toggle-label" data-i18n="about.oneClawVersion">虾虾 Version</span>
             <span id="aboutOneClawVersion">—</span>
           </div>
           <div class="toggle-row">

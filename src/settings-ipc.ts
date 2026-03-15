@@ -18,13 +18,16 @@ import {
 import {
   PROVIDER_PRESETS,
   MOONSHOT_SUB_PLATFORMS,
+  GLM_SUB_PLATFORMS,
+  MINIMAX_SUB_PLATFORMS,
   CUSTOM_PROVIDER_PRESETS,
   verifyProvider,
   verifyFeishu,
   verifyQqbot,
   verifyDingtalk,
   buildProviderConfig,
-  saveMoonshotConfig,
+  getBuiltinSubPlatform,
+  saveSubPlatformConfig,
   readUserConfig,
   writeUserConfig,
 } from "./provider-config";
@@ -243,13 +246,14 @@ export function registerSettingsIpc(opts: SettingsIpcOptions = {}): void {
         config.agents.defaults ??= {};
         config.agents.defaults.model ??= {};
 
-        if (provider === "moonshot") {
+        const builtinSubPlatform = getBuiltinSubPlatform(provider, subPlatform);
+
+        if (builtinSubPlatform) {
           // 记住现有 models 再写入（saveMoonshotConfig 会覆盖）
-          const sub = MOONSHOT_SUB_PLATFORMS[subPlatform || "moonshot-cn"];
-          const provKey = sub?.providerKey || "moonshot";
+          const provKey = builtinSubPlatform.providerKey;
           const prevModels: any[] = config.models.providers[provKey]?.models ?? [];
 
-          saveMoonshotConfig(config, apiKey, modelID, subPlatform);
+          saveSubPlatformConfig(config, provider, apiKey, modelID, subPlatform);
 
           // 合并：保留已有模型，确保选中模型在列表中
           mergeModels(config.models.providers[provKey], modelID, prevModels);
@@ -422,7 +426,7 @@ export function registerSettingsIpc(opts: SettingsIpcOptions = {}): void {
     if (!app.isPackaged) {
       return `开发模式未检测到 QQ Bot 插件，请先运行 npm run package:resources（当前目标：${process.platform}-${process.arch}）。`;
     }
-    return "QQ Bot 组件缺失，请重新安装 OneClaw。";
+    return "QQ Bot 组件缺失，请重新安装 虾虾。";
   }
 
   function resolveDingtalkMissingMessage(): string {
@@ -430,7 +434,7 @@ export function registerSettingsIpc(opts: SettingsIpcOptions = {}): void {
     if (!app.isPackaged) {
       return `开发模式未检测到钉钉连接器插件，请先运行 npm run package:resources（当前目标：${process.platform}-${process.arch}）。`;
     }
-    return "钉钉连接器组件缺失，请重新安装 OneClaw。";
+    return "钉钉连接器组件缺失，请重新安装 虾虾。";
   }
 
   function resolveWecomMissingMessage(): string {
@@ -438,7 +442,7 @@ export function registerSettingsIpc(opts: SettingsIpcOptions = {}): void {
     if (!app.isPackaged) {
       return `开发模式未检测到企业微信插件，请先运行 npm run package:resources（当前目标：${process.platform}-${process.arch}）。`;
     }
-    return "企业微信插件组件缺失，请重新安装 OneClaw。";
+    return "企业微信插件组件缺失，请重新安装 虾虾。";
   }
 
   ipcMain.handle("settings:get-qqbot-config", async () => {
@@ -886,7 +890,7 @@ export function registerSettingsIpc(opts: SettingsIpcOptions = {}): void {
           return { success: false, message: "Kimi Bot Token 不能为空。" };
         }
         if (!isKimiPluginBundled()) {
-          return { success: false, message: "Kimi Channel 组件缺失，请重新安装 OneClaw。" };
+      return { success: false, message: "Kimi Channel 组件缺失，请重新安装 虾虾。" };
         }
 
         const gatewayToken = ensureGatewayAuthTokenInConfig(config);
@@ -917,7 +921,7 @@ export function registerSettingsIpc(opts: SettingsIpcOptions = {}): void {
     return runTrackedSettingsAction("save_kimi_search", { enabled }, async () => {
       try {
         if (enabled && !isKimiSearchPluginBundled()) {
-          return { success: false, message: "Kimi Search 组件缺失，请重新安装 OneClaw。" };
+      return { success: false, message: "Kimi Search 组件缺失，请重新安装 虾虾。" };
         }
         // 专属 key 存到 sidecar 文件，不写入 openclaw.json
         if (typeof apiKey === "string") {
@@ -1978,6 +1982,40 @@ function extractProviderInfo(config: any): any {
     }
     apiKey = prov?.apiKey ?? "";
     configuredModels = extractModelIds(prov);
+  } else if (providerKey === "zai" && providers[providerKey]) {
+    const prov = providers[providerKey];
+    apiKey = prov?.apiKey ?? "";
+    baseURL = prov?.baseUrl ?? "";
+    api = prov?.api ?? "";
+    configuredModels = extractModelIds(prov);
+    if (baseURL === GLM_SUB_PLATFORMS["glm-coding"].baseUrl) {
+      provider = "glm";
+      subPlatform = "glm-coding";
+    } else if (baseURL === GLM_SUB_PLATFORMS["glm-standard"].baseUrl) {
+      provider = "glm";
+      subPlatform = "glm-standard";
+    } else {
+      const matchedPreset = Object.entries(CUSTOM_PROVIDER_PRESETS).find(
+        ([, preset]) => preset.providerKey === providerKey && preset.baseUrl === baseURL
+      );
+      if (matchedPreset) {
+        provider = "custom";
+        customPreset = matchedPreset[0];
+      }
+    }
+  } else if ((providerKey === "minimax" || providerKey === "minimax-cn") && providers[providerKey]) {
+    const prov = providers[providerKey];
+    apiKey = prov?.apiKey ?? "";
+    baseURL = prov?.baseUrl ?? "";
+    api = prov?.api ?? "";
+    configuredModels = extractModelIds(prov);
+    if (providerKey === "minimax-cn" || baseURL === MINIMAX_SUB_PLATFORMS["minimax-cn"].baseUrl) {
+      provider = "minimax";
+      subPlatform = "minimax-cn";
+    } else {
+      provider = "minimax";
+      subPlatform = "minimax-global";
+    }
   } else if (providers[providerKey]) {
     const prov = providers[providerKey];
     apiKey = prov?.apiKey ?? "";

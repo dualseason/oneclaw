@@ -6,6 +6,7 @@ import { WindowManager } from "./window";
 interface TrayOptions {
   windowManager: WindowManager;
   gateway: GatewayProcess;
+  onOpenDashboard: () => void;
   onRestartGateway: () => void;
   onStartGateway: () => void;
   onStopGateway: () => void;
@@ -41,20 +42,20 @@ const I18N: Record<string, TrayStrings> = {
     stopGateway: "Stop Gateway",
     settings: "Settings",
     checkUpdates: "Check for Updates",
-    quit: "Quit OneClaw",
+    quit: "Quit 虾虾",
   },
   zh: {
     stateRunning: "Gateway: 运行中",
     stateStarting: "Gateway: 启动中…",
     stateStopping: "Gateway: 停止中…",
     stateStopped: "Gateway: 已停止",
-    openDashboard: "打开 OneClaw",
+    openDashboard: "打开 虾虾",
     restartGateway: "重启 Gateway",
     startGateway: "启动 Gateway",
     stopGateway: "停止 Gateway",
     settings: "设置",
     checkUpdates: "检查更新",
-    quit: "退出 OneClaw",
+    quit: "退出 虾虾",
   },
 };
 
@@ -98,11 +99,11 @@ export class TrayManager {
     }
 
     this.tray = new Tray(icon);
-    this.tray.setToolTip("OneClaw");
+    this.tray.setToolTip("虾虾");
 
     // 点击托盘图标 → 打开主窗口
     this.tray.on("click", () => {
-      opts.windowManager.show({ port: opts.gateway.getPort(), token: opts.gateway.getToken() });
+      opts.onOpenDashboard();
     });
 
     this.updateMenu();
@@ -112,7 +113,7 @@ export class TrayManager {
   updateMenu(): void {
     if (!this.tray || !this.opts) return;
 
-    const { windowManager, gateway, onRestartGateway, onStartGateway, onStopGateway, onOpenSettings, onQuit, onCheckUpdates } = this.opts;
+    const { gateway, onOpenDashboard, onRestartGateway, onStartGateway, onStopGateway, onOpenSettings, onQuit, onCheckUpdates } = this.opts;
     const t = getTrayStrings();
     const state = gateway.getState();
     const inTransition = state === "starting" || state === "stopping";
@@ -122,7 +123,7 @@ export class TrayManager {
     const menu = Menu.buildFromTemplate([
       {
         label: t.openDashboard,
-        click: () => windowManager.show({ port: gateway.getPort(), token: gateway.getToken() }),
+        click: onOpenDashboard,
       },
       { type: "separator" },
       { label: getStateLabel(state), enabled: false },

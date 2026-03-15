@@ -7,31 +7,15 @@
 
   // ---- Provider 预设配置 ----
   const PROVIDERS = {
-    anthropic: {
-      placeholder: "sk-ant-...",
-      platformUrl: "https://console.anthropic.com?utm_source=oneclaw",
-      models: [
-        "claude-sonnet-4-6",
-        "claude-opus-4-6",
-        "claude-sonnet-4-5-20250929",
-        "claude-opus-4-5-20251101",
-        "claude-haiku-4-5-20251001",
-      ],
-    },
     moonshot: {
       placeholder: "sk-...",
       models: ["kimi-k2.5", "kimi-k2-0905-preview"],
       hasSubPlatform: true,
     },
-    openai: {
+    wanboshan: {
       placeholder: "sk-...",
-      platformUrl: "https://platform.openai.com?utm_source=oneclaw",
-      models: ["gpt-5.4", "gpt-5.2", "gpt-5.2-codex"],
-    },
-    google: {
-      placeholder: "AI...",
-      platformUrl: "https://aistudio.google.com?utm_source=oneclaw",
-      models: ["gemini-3.1-pro-preview", "gemini-3.1-flash-lite-preview", "gemini-3-flash-preview"],
+      platformUrl: "https://onekey.dualseason.com",
+      models: ["gpt-5.4", "claude-opus-4-6", "claude-sonnet-4-6"],
     },
     custom: {
       placeholder: "",
@@ -48,6 +32,77 @@
 
   // Kimi Code 子平台使用独立模型列表
   const KIMI_CODE_MODELS = ["k2p5"];
+  const GLM_MODELS = ["glm-5", "glm-4.7", "glm-4.7-flash", "glm-4.7-flashx"];
+  const MINIMAX_MODELS = ["MiniMax-M2.5", "MiniMax-M2.5-highspeed"];
+
+  PROVIDERS.moonshot.defaultSubPlatform = "kimi-code";
+  PROVIDERS.moonshot.subPlatforms = {
+    "kimi-code": {
+      providerKey: "kimi-coding",
+      label: "Kimi 会员订阅",
+      platformUrl: "https://kimi.com/code?utm_source=oneclaw",
+      models: KIMI_CODE_MODELS,
+      linkKey: "config.getKey.kimi-code",
+    },
+    "moonshot-cn": {
+      providerKey: "moonshot",
+      label: "Moonshot CN (中国)",
+      platformUrl: "https://platform.moonshot.cn?utm_source=oneclaw",
+      models: PROVIDERS.moonshot.models.slice(),
+      linkKey: "config.getKey.moonshot-cn",
+    },
+    "moonshot-ai": {
+      providerKey: "moonshot",
+      label: "Moonshot AI (Global)",
+      platformUrl: "https://platform.moonshot.ai?utm_source=oneclaw",
+      models: PROVIDERS.moonshot.models.slice(),
+      linkKey: "config.getKey.moonshot-ai",
+    },
+  };
+
+  delete PROVIDERS.moonshot.hasSubPlatform;
+
+  PROVIDERS.glm = {
+    placeholder: "...",
+    defaultSubPlatform: "glm-standard",
+    subPlatforms: {
+      "glm-standard": {
+        providerKey: "zai",
+        label: "GLM 官方",
+        platformUrl: "https://open.bigmodel.cn/",
+        models: GLM_MODELS,
+        linkKey: "config.getKey.glm-standard",
+      },
+      "glm-coding": {
+        providerKey: "zai",
+        label: "GLM Coding Plan",
+        platformUrl: "https://open.bigmodel.cn/",
+        models: GLM_MODELS,
+        linkKey: "config.getKey.glm-coding",
+      },
+    },
+  };
+
+  PROVIDERS.minimax = {
+    placeholder: "eyJ...",
+    defaultSubPlatform: "minimax-global",
+    subPlatforms: {
+      "minimax-global": {
+        providerKey: "minimax",
+        label: "MiniMax Global",
+        platformUrl: "https://platform.minimax.io/",
+        models: MINIMAX_MODELS,
+        linkKey: "config.getKey.minimax-global",
+      },
+      "minimax-cn": {
+        providerKey: "minimax-cn",
+        label: "MiniMax 中国站",
+        platformUrl: "https://platform.minimaxi.com/",
+        models: MINIMAX_MODELS,
+        linkKey: "config.getKey.minimax-cn",
+      },
+    },
+  };
 
   // Custom tab 内置预设
   const CUSTOM_PRESETS = {
@@ -109,12 +164,17 @@
     },
   };
 
+  delete CUSTOM_PRESETS.minimax;
+  delete CUSTOM_PRESETS["minimax-cn"];
+  delete CUSTOM_PRESETS["zai-cn"];
+  delete CUSTOM_PRESETS["zai-cn-coding"];
+
   // ---- 国际化文案 ----
   const I18N = {
     en: {
-      title: "OneClaw Setup",
-      "welcome.title": "Welcome to OneClaw",
-      "welcome.subtitle": "OneClaw is a one-click installer for OpenClaw",
+      title: "虾虾 Setup",
+      "welcome.title": "Welcome to 虾虾",
+      "welcome.subtitle": "虾虾 is a one-click installer for OpenClaw",
       "welcome.feat2": "OpenClaw can access files on your computer and automate tasks",
       "welcome.feat3": "Connect to Feishu, WeCom, DingTalk, QQ Bot",
       "welcome.security": "API keys stored locally, never sent to third-party servers",
@@ -122,7 +182,7 @@
       "welcome.next": "Next",
       "config.title": "Configure Provider",
       "config.subtitle": "Choose your LLM provider and enter your API key",
-      "config.keyNotice": "OneClaw does not provide API keys. Please click the link to purchase one from the provider's website",
+      "config.keyNotice": "虾虾 does not provide API keys. Please click the link to purchase one from the provider's website",
       "config.platform": "Platform",
       "config.baseUrl": "Base URL",
       "config.apiKey": "API Key",
@@ -130,6 +190,10 @@
       "config.getKey.kimi-code": "Get Key (Kimi for Code) →",
       "config.getKey.moonshot-cn": "Get Key (Moonshot.cn) →",
       "config.getKey.moonshot-ai": "Get Key (Moonshot.ai) →",
+      "config.getKey.glm-standard": "Get Key (GLM) →",
+      "config.getKey.glm-coding": "Get Key (GLM Coding Plan) →",
+      "config.getKey.minimax-global": "Get Key (MiniMax Global) →",
+      "config.getKey.minimax-cn": "Get Key (MiniMax China) →",
       "config.model": "Model",
       "config.modelId": "Model ID",
       "config.apiType": "API Type",
@@ -144,7 +208,8 @@
       "config.verify": "Verify & Continue",
       "config.imageSupport": "Model supports image input",
       "done.title": "All Set!",
-      "done.subtitle": "OneClaw is ready — switch providers or models anytime in Settings",
+      "done.successBanner": "Your configuration is saved. Choose whether to open the main app now.",
+      "done.subtitle": "虾虾 is ready — switch providers or models anytime in Settings",
       "done.feature1": "Chat with state-of-the-art language models",
       "done.feature2": "Generate and execute code in real time",
       "done.feature3": "Manage multiple conversations and contexts",
@@ -152,14 +217,17 @@
       "done.sessionMemory": "Auto-save session memory on /new",
       "done.launchAtLogin": "Launch at login",
       "done.installCli": "Add openclaw command to terminal PATH",
-      "done.start": "Start OneClaw",
+      "done.openNow": "Finish and open 虾虾",
+      "done.openLater": "Finish, open later",
+      "done.completing": "Completing setup…",
+      "done.start": "Start 虾虾",
       "done.starting": "Starting Gateway…",
       "done.retryPort": "Try a different port",
       "done.retryPortStarting": "Switching port…",
       "done.retryPortSuccess": "Switched to port {port}, restarting…",
-      "done.startFailed": "Gateway failed to start — please click Start OneClaw to retry",
+      "done.startFailed": "Gateway failed to start — please click Start 虾虾 to retry",
       "conflict.title": "Existing OpenClaw Detected",
-      "conflict.subtitle": "An existing OpenClaw installation was found on your system, which may cause port conflicts with OneClaw",
+      "conflict.subtitle": "An existing OpenClaw installation was found on your system, which may cause port conflicts with 虾虾",
       "conflict.reassure": "Your personas and chat history will be preserved",
       "conflict.portInUse": "Port {port} is in use by process: {process} (PID: {pid})",
       "conflict.globalInstalled": "Global installation found: {path}",
@@ -174,9 +242,9 @@
       "error.connection": "Connection error: ",
     },
     zh: {
-      title: "OneClaw 安装引导",
-      "welcome.title": "欢迎使用 OneClaw",
-      "welcome.subtitle": "OneClaw 是 OpenClaw 的一键安装包",
+      title: "虾虾 安装引导",
+      "welcome.title": "欢迎使用 虾虾",
+      "welcome.subtitle": "虾虾 是 OpenClaw 的一键安装包",
       "welcome.feat2": "OpenClaw 可以访问电脑上的文件，自动执行各种办公任务",
       "welcome.feat3": "连接飞书、企业微信、钉钉、QQ 机器人",
       "welcome.security": "API 密钥安全存储在本地 绝不会发送到任何第三方服务器",
@@ -184,7 +252,7 @@
       "welcome.next": "下一步",
       "config.title": "配置服务商",
       "config.subtitle": "选择 LLM 服务商并输入 API 密钥",
-      "config.keyNotice": "OneClaw 不提供 API 密钥 请点击链接前往服务商官网购买 API 密钥后使用",
+      "config.keyNotice": "虾虾 不提供 API 密钥 请点击链接前往服务商官网购买 API 密钥后使用",
       "config.platform": "平台",
       "config.baseUrl": "接口地址",
       "config.apiKey": "API 密钥",
@@ -192,6 +260,10 @@
       "config.getKey.kimi-code": "购买会员获取密钥 (Kimi for Code) →",
       "config.getKey.moonshot-cn": "获取密钥 (Moonshot.cn) →",
       "config.getKey.moonshot-ai": "获取密钥 (Moonshot.ai) →",
+      "config.getKey.glm-standard": "获取密钥 (GLM 官方) →",
+      "config.getKey.glm-coding": "获取密钥 (GLM Coding Plan) →",
+      "config.getKey.minimax-global": "获取密钥 (MiniMax Global) →",
+      "config.getKey.minimax-cn": "获取密钥 (MiniMax 中国站) →",
       "config.model": "模型",
       "config.modelId": "模型 ID",
       "config.apiType": "接口类型",
@@ -206,7 +278,8 @@
       "config.verify": "验证并继续",
       "config.imageSupport": "模型支持图片输入",
       "done.title": "配置完成！",
-      "done.subtitle": "OneClaw 已就绪 随时可在设置中切换服务商或模型",
+      "done.successBanner": "配置已经保存。最后一步，选择是否现在打开主界面。",
+      "done.subtitle": "虾虾 已就绪 随时可在设置中切换服务商或模型",
       "done.feature1": "与最先进的大语言模型对话",
       "done.feature2": "实时生成并执行代码",
       "done.feature3": "管理多个对话和上下文",
@@ -214,14 +287,17 @@
       "done.sessionMemory": "开新对话时自动保存会话记忆",
       "done.launchAtLogin": "开机启动",
       "done.installCli": "将 openclaw 命令添加到终端 PATH",
-      "done.start": "启动 OneClaw",
+      "done.openNow": "完成安装并打开虾虾",
+      "done.openLater": "完成安装，稍后打开",
+      "done.completing": "正在完成安装…",
+      "done.start": "启动 虾虾",
       "done.starting": "正在启动 Gateway…",
       "done.retryPort": "换个端口试试",
       "done.retryPortStarting": "正在切换端口…",
       "done.retryPortSuccess": "已切换到端口 {port}，正在重启…",
-      "done.startFailed": 'Gateway 启动失败 请点击"启动 OneClaw"重试',
+      "done.startFailed": 'Gateway 启动失败 请点击"启动 虾虾"重试',
       "conflict.title": "检测到已安装的 OpenClaw",
-      "conflict.subtitle": "系统中已存在 OpenClaw 安装 可能与 OneClaw 产生端口冲突",
+      "conflict.subtitle": "系统中已存在 OpenClaw 安装 可能与 虾虾 产生端口冲突",
       "conflict.reassure": "你的人设和聊天记录将会被保留",
       "conflict.portInUse": "端口 {port} 被占用，进程: {process} (PID: {pid})",
       "conflict.globalInstalled": "全局安装路径: {path}",
@@ -251,6 +327,7 @@
     platformLink: $("#platformLink"),
     docsLink: $("#docsLink"),
     subPlatformGroup: $("#subPlatformGroup"),
+    subPlatformOptions: $("#subPlatformOptions"),
     baseURLGroup: $("#baseURLGroup"),
     apiKeyGroup: $("#apiKeyGroup"),
     apiKeyInput: $("#apiKey"),
@@ -289,6 +366,7 @@
     btnStart: $("#btnStart"),
     btnStartText: $("#btnStart .btn-text"),
     btnStartSpinner: $("#btnStartSpinner"),
+    btnFinishLater: $("#btnFinishLater"),
     doneStatus: $("#doneStatus"),
     launchAtLoginRow: $("#launchAtLoginRow"),
     launchAtLoginEnabled: $("#launchAtLoginEnabled"),
@@ -299,13 +377,60 @@
 
   // ---- 状态 ----
   let currentStep = 1;
-  let currentProvider = "moonshot";
+  let currentProvider = "wanboshan";
   let verifying = false;
   let starting = false;
   let currentLang = "en";
   let launchAtLoginSupported = false;
   let detectionResult = null;
   let resolving = false;
+  function prepareSetupUi() {
+    if (els.docsLink) {
+      els.docsLink.remove();
+      els.docsLink = null;
+    }
+
+    const doneStepContent = document.querySelector("#step3 .step-content");
+    if (!doneStepContent || !els.btnStart || !els.doneStatus) {
+      return;
+    }
+
+    if (!doneStepContent.querySelector(".done-success-banner")) {
+      const subtitle = doneStepContent.querySelector(".subtitle");
+      const banner = document.createElement("div");
+      banner.className = "done-success-banner";
+      const text = document.createElement("span");
+      text.setAttribute("data-i18n", "done.successBanner");
+      banner.appendChild(text);
+      if (subtitle && subtitle.parentNode === doneStepContent) {
+        doneStepContent.insertBefore(banner, subtitle.nextSibling);
+      } else {
+        doneStepContent.insertBefore(banner, doneStepContent.firstChild);
+      }
+    }
+
+    let doneActions = doneStepContent.querySelector(".done-actions");
+    if (!doneActions) {
+      doneActions = document.createElement("div");
+      doneActions.className = "done-actions";
+      els.btnStart.replaceWith(doneActions);
+      doneActions.appendChild(els.btnStart);
+    }
+
+    if (els.btnStartText) {
+      els.btnStartText.setAttribute("data-i18n", "done.openNow");
+    }
+
+    if (!els.btnFinishLater) {
+      const laterBtn = document.createElement("button");
+      laterBtn.className = "btn-secondary";
+      laterBtn.id = "btnFinishLater";
+      laterBtn.type = "button";
+      laterBtn.setAttribute("data-i18n", "done.openLater");
+      doneActions.appendChild(laterBtn);
+      els.btnFinishLater = laterBtn;
+    }
+  }
 
   // ---- 语言检测（从 URL ?lang= 参数读取） ----
   function detectLang() {
@@ -344,9 +469,79 @@
   }
 
   // ---- 获取当前 Moonshot 子平台 ----
-  function getSubPlatform() {
+  function getProviderSubPlatforms(provider) {
+    return PROVIDERS[provider] && PROVIDERS[provider].subPlatforms
+      ? PROVIDERS[provider].subPlatforms
+      : null;
+  }
+
+  function hasSubPlatformOptions(provider) {
+    const subPlatforms = getProviderSubPlatforms(provider);
+    return !!(subPlatforms && Object.keys(subPlatforms).length);
+  }
+
+  function getDefaultSubPlatform(provider) {
+    const config = PROVIDERS[provider];
+    if (config && config.defaultSubPlatform) {
+      return config.defaultSubPlatform;
+    }
+    const subPlatforms = getProviderSubPlatforms(provider);
+    return subPlatforms ? Object.keys(subPlatforms)[0] : "";
+  }
+
+  function getSubPlatform(provider) {
+    const targetProvider = provider || currentProvider;
+    const subPlatforms = getProviderSubPlatforms(targetProvider);
+    if (!subPlatforms) return "";
     const checked = document.querySelector('input[name="subPlatform"]:checked');
-    return checked ? checked.value : "kimi-code";
+    if (checked && subPlatforms[checked.value]) {
+      return checked.value;
+    }
+    return getDefaultSubPlatform(targetProvider);
+  }
+
+  function getSelectedSubPlatformConfig(provider) {
+    const subPlatforms = getProviderSubPlatforms(provider || currentProvider);
+    if (!subPlatforms) return null;
+    return subPlatforms[getSubPlatform(provider)] || null;
+  }
+
+  function renderSubPlatformOptions(provider, preferredSubPlatform) {
+    if (!els.subPlatformOptions) return;
+    const subPlatforms = getProviderSubPlatforms(provider);
+    els.subPlatformOptions.innerHTML = "";
+    if (!subPlatforms) return;
+
+    const selected = subPlatforms[preferredSubPlatform]
+      ? preferredSubPlatform
+      : getDefaultSubPlatform(provider);
+
+    Object.entries(subPlatforms).forEach(([value, option]) => {
+      const label = document.createElement("label");
+      label.className = "radio-item";
+
+      const input = document.createElement("input");
+      input.type = "radio";
+      input.name = "subPlatform";
+      input.value = value;
+      input.checked = value === selected;
+
+      const text = document.createElement("span");
+      text.textContent = option.label;
+
+      label.appendChild(input);
+      label.appendChild(text);
+      els.subPlatformOptions.appendChild(label);
+    });
+  }
+
+  function syncCustomPresetOptions() {
+    Array.from(els.customPreset.options).forEach((option) => {
+      if (!option.value || option.value === "__placeholder__") return;
+      if (!CUSTOM_PRESETS[option.value]) {
+        option.remove();
+      }
+    });
   }
 
   // ---- 环境检测（Step 0） ----
@@ -439,7 +634,7 @@
   }
 
   // ---- Provider 切换 ----
-  function switchProvider(provider) {
+  function switchProvider(provider, preferredSubPlatform) {
     currentProvider = provider;
     const config = PROVIDERS[provider];
 
@@ -450,8 +645,9 @@
     els.apiKeyInput.placeholder = config.placeholder;
     els.apiKeyInput.value = "";
     hideError();
+    renderSubPlatformOptions(provider, preferredSubPlatform);
     updatePlatformLink();
-    toggleEl(els.subPlatformGroup, config.hasSubPlatform === true);
+    toggleEl(els.subPlatformGroup, hasSubPlatformOptions(provider));
 
     const isCustom = provider === "custom";
     // 预设下拉仅 Custom tab 显示
@@ -555,15 +751,19 @@
     if (currentProvider === "moonshot") {
       url = SUB_PLATFORM_URLS[getSubPlatform()] || "";
     }
+    if (currentProvider === "glm" || currentProvider === "minimax") {
+      const subPlatformConfig = getSelectedSubPlatformConfig(currentProvider);
+      url = subPlatformConfig ? subPlatformConfig.platformUrl || "" : "";
+    }
     // Custom 预设的平台链接
     if (currentProvider === "custom") {
       const preset = CUSTOM_PRESETS[els.customPreset.value];
       url = preset ? preset.platformUrl : "";
     }
     if (url) {
-      // Moonshot 子平台显示带平台名的链接文本
-      var linkKey = currentProvider === "moonshot"
-        ? "config.getKey." + getSubPlatform()
+      const subPlatformConfig = getSelectedSubPlatformConfig(currentProvider);
+      var linkKey = subPlatformConfig && subPlatformConfig.linkKey
+        ? subPlatformConfig.linkKey
         : "config.getKey";
       els.platformLink.textContent = t(linkKey);
       els.platformLink.dataset.url = url;
@@ -578,6 +778,9 @@
     const config = PROVIDERS[currentProvider];
     if (currentProvider === "moonshot" && getSubPlatform() === "kimi-code") {
       populatePresetModels(KIMI_CODE_MODELS);
+    } else if (currentProvider === "glm" || currentProvider === "minimax") {
+      const subPlatformConfig = getSelectedSubPlatformConfig(currentProvider);
+      populatePresetModels(subPlatformConfig ? subPlatformConfig.models : config.models);
     } else {
       populatePresetModels(config.models);
     }
@@ -702,7 +905,7 @@
     }
 
     // Moonshot 子平台
-    if (currentProvider === "moonshot") {
+    if (hasSubPlatformOptions(currentProvider)) {
       params.subPlatform = getSubPlatform();
     }
 
@@ -724,7 +927,7 @@
   }
 
   // ---- 完成 Setup ----
-  async function handleComplete() {
+  async function handleComplete(openMainWindow) {
     if (starting) return;
     setStarting(true);
     setDoneStatus("");
@@ -733,6 +936,7 @@
       const payload = {
         installCli: true,
         sessionMemory: true,
+        openMainWindow: openMainWindow !== false,
       };
       if (launchAtLoginSupported) {
         payload.launchAtLogin = !!els.launchAtLoginEnabled.checked;
@@ -841,11 +1045,17 @@
   function setStarting(loading) {
     starting = loading;
     els.btnStart.disabled = loading;
+    if (els.btnFinishLater) {
+      els.btnFinishLater.disabled = loading;
+    }
     if (loading) {
-      els.btnStartText.textContent = t("done.starting");
+      els.btnStartText.textContent = t("done.completing");
       els.btnStartSpinner.classList.remove("hidden");
     } else {
-      els.btnStartText.textContent = t("done.start");
+      els.btnStartText.textContent = t("done.openNow");
+      if (els.btnFinishLater) {
+        els.btnFinishLater.textContent = t("done.openLater");
+      }
       els.btnStartSpinner.classList.add("hidden");
     }
   }
@@ -879,7 +1089,7 @@
     // Moonshot 子平台切换 → 更新模型列表和平台链接
     if (els.subPlatformGroup) {
       els.subPlatformGroup.addEventListener("change", () => {
-        if (currentProvider === "moonshot") {
+        if (hasSubPlatformOptions(currentProvider)) {
           updateModels();
           updatePlatformLink();
         }
@@ -904,13 +1114,6 @@
     });
 
     // 教程文档链接 → 用系统浏览器打开
-    els.docsLink.addEventListener("click", (e) => {
-      e.preventDefault();
-      if (window.oneclaw?.openExternal) {
-        window.oneclaw.openExternal("https://oneclaw.cn/docs");
-      }
-    });
-
     els.btnToggleKey.addEventListener("click", toggleKeyVisibility);
     els.btnVerify.addEventListener("click", handleVerify);
 
@@ -919,16 +1122,21 @@
     });
 
     // Step 3 — 完成
-    els.btnStart.addEventListener("click", handleComplete);
+    els.btnStart.addEventListener("click", () => handleComplete(true));
+    if (els.btnFinishLater) {
+      els.btnFinishLater.addEventListener("click", () => handleComplete(false));
+    }
     els.btnRetryPort.addEventListener("click", handleRetryPort);
   }
 
   // ---- 初始化 ----
   function init() {
     detectLang();
+    prepareSetupUi();
     applyI18n();
+    syncCustomPresetOptions();
     bindEvents();
-    switchProvider("moonshot");
+    switchProvider("wanboshan");
     checkExistingInstallation();
     loadLaunchAtLoginState();
   }

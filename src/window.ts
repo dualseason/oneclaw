@@ -25,8 +25,8 @@ interface NavigateOptions {
 function resolveMainWindowTitle(): string {
   // 主窗口标题直接解释产品定位，方便用户在系统标题栏里理解 OneClaw 是什么。
   return app.getLocale().startsWith("zh")
-    ? "OneClaw 一键安装OpenClaw"
-    : "OneClaw - One-click installer for OpenClaw";
+    ? "虾虾 一键安装OpenClaw"
+    : "虾虾 - One-click installer for OpenClaw";
 }
 
 function maskToken(token: string): string {
@@ -247,7 +247,7 @@ export class WindowManager {
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>OneClaw - Error</title>
+  <title>虾虾 - Error</title>
   <style>
     :root { color-scheme: light dark; }
     body {
@@ -283,7 +283,7 @@ export class WindowManager {
 <body>
   <main class="card">
     <h1>Chat UI not available</h1>
-    <p>OneClaw Chat UI 未能加载。请尝试重新启动应用。</p>
+    <p>虾虾 Chat UI 未能加载。请尝试重新启动应用。</p>
     <button id="retryBtn" type="button">Retry</button>
   </main>
   <script>

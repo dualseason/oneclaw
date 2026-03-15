@@ -20,6 +20,7 @@ import { renderSharePrompt } from "./views/share-prompt.ts";
 import { patchSession, loadSessions } from "./controllers/sessions.ts";
 import { renderSkillStoreView, type SkillStoreState } from "./skill-store-view.ts";
 import type { SkillStatusEntry } from "./types.ts";
+import oneClawLogo from "../assets/openclaw-favicon.svg";
 import {
   loadSkills,
   updateSkillEnabled,
@@ -815,6 +816,14 @@ export function renderApp(state: AppViewState) {
   const settingsActive = oneclawView === "settings";
   const skillsActive = oneclawView === "skills";
   const updateBannerState = state.updateBannerState;
+  const headerContextLabel = settingsActive
+    ? t("sidebar.settings")
+    : skillsActive
+      ? t("sidebar.skillStore")
+      : (state.connected ? t("sidebar.connected") : t("sidebar.disconnected"));
+  const headerContextClass = settingsActive || skillsActive
+    ? "oneclaw-header__meta"
+    : `oneclaw-header__meta ${state.connected ? "is-online" : "is-offline"}`;
 
   return html`
     <div
@@ -904,6 +913,18 @@ export function renderApp(state: AppViewState) {
                 </div>
               `
         }
+
+        <header class="oneclaw-header">
+          <div class="oneclaw-header__brand">
+            <span class="oneclaw-header__logo-shell">
+              <img class="oneclaw-header__logo" src=${oneClawLogo} alt=${t("sidebar.brand")} />
+            </span>
+            <div class="oneclaw-header__copy">
+              <h1 class="oneclaw-header__title">${t("sidebar.brand")}</h1>
+            </div>
+          </div>
+          <span class=${headerContextClass}>${headerContextLabel}</span>
+        </header>
 
         <main class="oneclaw-content">
           ${renderPairingNotice(state)}

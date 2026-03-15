@@ -1,6 +1,6 @@
 appId: com.oneclaw.app
-productName: OneClaw
-copyright: Copyright © 2025 OneClaw
+productName: 虾虾
+copyright: Copyright © 2025 虾虾
 
 directories:
   output: out
@@ -25,7 +25,7 @@ mac:
   category: public.app-category.productivity
   # zip artifactName 含 arch + -mac 后缀，供 electron-updater findFile 按架构匹配
   # dmg.artifactName 会覆盖 DMG 的命名
-  artifactName: "OneClaw-${version}-${arch}-mac.${ext}"
+  artifactName: "虾虾-${version}-${arch}-mac.${ext}"
   # 签名身份由 CSC_NAME 环境变量指定（见 .env），避免把证书名写入仓库
   hardenedRuntime: true
   gatekeeperAssess: false
@@ -40,12 +40,13 @@ dmg:
   sign: false
   # 关闭 DMG 差分更新元数据，避免生成 .dmg.blockmap
   writeUpdateInfo: false
-  artifactName: "OneClaw-${version}-${arch}.${ext}"
+  artifactName: "虾虾-${version}-${arch}.${ext}"
 
 # --- Windows ---
 win:
   target: nsis
   icon: assets/icon.ico
+  executableName: OneClaw
 
 nsis:
   oneClick: true
@@ -57,4 +58,4 @@ nsis:
   runAfterFinish: true
   # 关闭 NSIS 差分包，避免生成 .exe.blockmap
   differentialPackage: false
-  artifactName: "OneClaw-Setup-${version}-${arch}.${ext}"
+  artifactName: "虾虾-安装包-${version}-${arch}.${ext}"

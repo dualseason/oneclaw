@@ -5798,6 +5798,98 @@ img.chat-avatar {
   background: var(--bg);
 }
 
+.oneclaw-header {
+  position: relative;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 56px 24px 16px;
+  border-bottom: 1px solid var(--border);
+  background:
+    radial-gradient(circle at left center, rgba(192, 57, 43, 0.12), transparent 34%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0)),
+    var(--bg);
+}
+
+.oneclaw-header__brand {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.oneclaw-header__logo-shell {
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 14px;
+  border: 1px solid rgba(192, 57, 43, 0.14);
+  background: var(--card);
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
+}
+
+.oneclaw-header__logo {
+  width: 28px;
+  height: 28px;
+  object-fit: contain;
+}
+
+.oneclaw-header__copy {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.oneclaw-header__title {
+  margin: 0;
+  font-size: 22px;
+  line-height: 1.1;
+  font-weight: 700;
+  color: var(--text-strong);
+}
+
+.oneclaw-header__meta {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  padding: 0 14px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.oneclaw-header__meta::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: currentColor;
+  opacity: 0.7;
+}
+
+.oneclaw-header__meta.is-online {
+  color: #22c55e;
+  background: rgba(34, 197, 94, 0.1);
+  border-color: rgba(34, 197, 94, 0.2);
+}
+
+.oneclaw-header__meta.is-offline {
+  color: var(--accent);
+  background: rgba(192, 57, 43, 0.1);
+  border-color: rgba(192, 57, 43, 0.18);
+}
+
 .oneclaw-content {
   flex: 1;
   overflow: hidden;
@@ -6364,11 +6456,34 @@ img.chat-avatar {
   :root {
     --sidebar-width: 196px;
   }
+
+  .oneclaw-header {
+    padding: 54px 18px 14px;
+  }
+
+  .oneclaw-header__title {
+    font-size: 20px;
+  }
 }
 
 @media (max-width: 720px) {
   :root {
     --sidebar-width: 178px;
+  }
+
+  .oneclaw-header {
+    align-items: flex-start;
+    flex-direction: column;
+    padding: 52px 16px 14px;
+  }
+
+  .oneclaw-header__brand {
+    width: 100%;
+  }
+
+  .oneclaw-header__meta {
+    min-height: 32px;
+    padding: 0 12px;
   }
 
   .oneclaw-sidebar__title {

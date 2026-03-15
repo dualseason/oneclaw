@@ -11,17 +11,41 @@ export interface ProviderPreset {
   api: string;
 }
 
+export interface SubPlatformPreset extends ProviderPreset {
+  providerKey: string;
+}
+
 export const PROVIDER_PRESETS: Record<string, ProviderPreset> = {
-  anthropic: { baseUrl: "https://api.anthropic.com/v1", api: "anthropic-messages" },
-  openai: { baseUrl: "https://api.openai.com/v1", api: "openai-completions" },
-  google: { baseUrl: "https://generativelanguage.googleapis.com/v1beta", api: "google-generative-ai" },
+  wanboshan: { baseUrl: "https://onekey.dualseason.com", api: "openai-responses" },
 };
 
 // Moonshot 三个子平台配置
-export const MOONSHOT_SUB_PLATFORMS: Record<string, { baseUrl: string; api: string; providerKey: string }> = {
+export const MOONSHOT_SUB_PLATFORMS: Record<string, SubPlatformPreset> = {
   "moonshot-cn": { baseUrl: "https://api.moonshot.cn/v1", api: "openai-completions", providerKey: "moonshot" },
   "moonshot-ai": { baseUrl: "https://api.moonshot.ai/v1", api: "openai-completions", providerKey: "moonshot" },
   "kimi-code": { baseUrl: "https://api.kimi.com/coding", api: "anthropic-messages", providerKey: "kimi-coding" },
+};
+
+export const GLM_SUB_PLATFORMS: Record<string, SubPlatformPreset> = {
+  "glm-standard": { baseUrl: "https://open.bigmodel.cn/api/paas/v4", api: "openai-completions", providerKey: "zai" },
+  "glm-coding": { baseUrl: "https://open.bigmodel.cn/api/coding/paas/v4", api: "openai-completions", providerKey: "zai" },
+};
+
+export const MINIMAX_SUB_PLATFORMS: Record<string, SubPlatformPreset> = {
+  "minimax-global": { baseUrl: "https://api.minimax.io/anthropic", api: "anthropic-messages", providerKey: "minimax" },
+  "minimax-cn": { baseUrl: "https://api.minimaxi.com/anthropic", api: "anthropic-messages", providerKey: "minimax-cn" },
+};
+
+export const BUILTIN_SUB_PLATFORM_PROVIDERS: Record<string, Record<string, SubPlatformPreset>> = {
+  moonshot: MOONSHOT_SUB_PLATFORMS,
+  glm: GLM_SUB_PLATFORMS,
+  minimax: MINIMAX_SUB_PLATFORMS,
+};
+
+const BUILTIN_SUB_PLATFORM_DEFAULTS: Record<string, string> = {
+  moonshot: "moonshot-cn",
+  glm: "glm-standard",
+  minimax: "minimax-global",
 };
 
 // Custom tab 内置预设（国产 provider 快捷配置）
@@ -113,6 +137,13 @@ export const CUSTOM_PROVIDER_PRESETS: Record<string, CustomProviderPreset> = {
   },
 };
 
+export function getBuiltinSubPlatform(provider: string, subPlatform?: string): SubPlatformPreset | undefined {
+  const platforms = BUILTIN_SUB_PLATFORM_PROVIDERS[provider];
+  if (!platforms) return undefined;
+  const fallback = BUILTIN_SUB_PLATFORM_DEFAULTS[provider];
+  return platforms[subPlatform || fallback] || platforms[fallback];
+}
+
 // ── 构建 Provider 配置对象 ──
 
 export function buildProviderConfig(
@@ -126,7 +157,7 @@ export function buildProviderConfig(
 ): Record<string, unknown> {
   const preset = PROVIDER_PRESETS[provider];
 
-  // 预设 provider（Anthropic/OpenAI/Google）一律声明图片能力
+  // 预设 provider 一律声明图片能力
   if (preset) {
     return {
       apiKey,
@@ -165,7 +196,20 @@ export function saveMoonshotConfig(
   modelID: string,
   subPlatform: string
 ): void {
-  const sub = MOONSHOT_SUB_PLATFORMS[subPlatform] || MOONSHOT_SUB_PLATFORMS["moonshot-cn"];
+  saveSubPlatformConfig(config, "moonshot", apiKey, modelID, subPlatform);
+}
+
+export function saveSubPlatformConfig(
+  config: any,
+  provider: string,
+  apiKey: string,
+  modelID: string,
+  subPlatform?: string
+): void {
+  const sub = getBuiltinSubPlatform(provider, subPlatform);
+  if (!sub) {
+    throw new Error(`Unknown built-in provider: ${provider}`);
+  }
   const providerKey = sub.providerKey;
 
   // 所有子平台统一写法：apiKey + baseUrl + api + models 写入 providers
@@ -202,36 +246,9 @@ export function writeUserConfig(config: any): void {
 
 // ── 验证函数 ──
 
-// Anthropic 原生接口验证
-export function verifyAnthropic(apiKey: string, modelID?: string): Promise<void> {
-  return jsonRequest("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "x-api-key": apiKey,
-      "anthropic-version": "2023-06-01",
-      "content-type": "application/json",
-    },
-    body: JSON.stringify({
-      model: modelID || "claude-haiku-4-5-20251001",
-      max_tokens: 1,
-      messages: [{ role: "user", content: "hi" }],
-    }),
-  });
-}
-
-// OpenAI 原生接口验证
-export function verifyOpenAI(apiKey: string): Promise<void> {
-  return jsonRequest("https://api.openai.com/v1/models", {
-    headers: { Authorization: `Bearer ${apiKey}` },
-  });
-}
-
-// Google Generative AI 验证
-export function verifyGoogle(apiKey: string): Promise<void> {
-  return jsonRequest(
-    `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`,
-    {}
-  );
+// 万博山内置入口按 OpenAI 兼容接口验证
+export function verifyWanboshan(apiKey: string, modelID?: string): Promise<void> {
+  return verifyCustom(apiKey, PROVIDER_PRESETS.wanboshan.baseUrl, PROVIDER_PRESETS.wanboshan.api, modelID);
 }
 
 // Moonshot 子平台验证（根据子平台选择不同 URL）
@@ -260,6 +277,18 @@ export function verifyMoonshot(apiKey: string, subPlatform?: string, modelID?: s
   return jsonRequest(`${baseUrl}/models`, {
     headers: { Authorization: `Bearer ${apiKey}` },
   });
+}
+
+export function verifyGlm(apiKey: string, subPlatform?: string, modelID?: string): Promise<void> {
+  const sub = getBuiltinSubPlatform("glm", subPlatform);
+  if (!sub) throw new Error("Unknown GLM platform");
+  return verifyCustom(apiKey, sub.baseUrl, sub.api, modelID);
+}
+
+export function verifyMinimax(apiKey: string, subPlatform?: string, modelID?: string): Promise<void> {
+  const sub = getBuiltinSubPlatform("minimax", subPlatform);
+  if (!sub) throw new Error("Unknown MiniMax platform");
+  return verifyCustom(apiKey, sub.baseUrl, sub.api, modelID);
 }
 
 // 飞书应用凭据验证（通过 tenant_access_token 接口校验 appId + appSecret）
@@ -466,17 +495,17 @@ export async function verifyProvider(params: {
   } = params;
   try {
     switch (provider) {
-      case "anthropic":
-        await verifyAnthropic(apiKey!, modelID);
-        break;
-      case "openai":
-        await verifyOpenAI(apiKey!);
-        break;
-      case "google":
-        await verifyGoogle(apiKey!);
+      case "wanboshan":
+        await verifyWanboshan(apiKey!, modelID);
         break;
       case "moonshot":
         await verifyMoonshot(apiKey!, subPlatform, modelID);
+        break;
+      case "glm":
+        await verifyGlm(apiKey!, subPlatform, modelID);
+        break;
+      case "minimax":
+        await verifyMinimax(apiKey!, subPlatform, modelID);
         break;
       case "custom": {
         const customPre = customPreset ? CUSTOM_PROVIDER_PRESETS[customPreset] : undefined;

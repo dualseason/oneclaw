@@ -103,6 +103,10 @@ if (!app.requestSingleInstanceLock()) {
   process.exit(0);
 }
 
+if (process.platform === "win32") {
+  app.setAppUserModelId("com.oneclaw.app");
+}
+
 // ── 全局错误兜底 ──
 
 process.on("uncaughtException", (err) => {
@@ -233,7 +237,7 @@ function promptConfigRecovery(opts: {
 // Gateway 启动失败时提示用户进入备份恢复，避免反复重启无效。
 function reportGatewayStartFailure(source: string): RecoveryAction {
   const logPath = resolveGatewayLogPath();
-  const title = "OneClaw Gateway 启动失败";
+  const title = "虾虾 Gateway 启动失败";
   const detail =
     `来源: ${source}\n` +
     `建议先前往设置 → 备份与恢复，回退到最近可用配置。\n` +
@@ -257,7 +261,7 @@ function reportConfigInvalidFailure(parseError?: string): RecoveryAction {
 
   log.error(`配置文件损坏，JSON 解析失败: ${parseError ?? "unknown"}`);
   return promptConfigRecovery({
-    title: "OneClaw 配置文件损坏",
+    title: "虾虾 配置文件损坏",
     message: "检测到 openclaw.json 不是有效 JSON，Gateway 无法启动。",
     detail,
   });
@@ -271,6 +275,7 @@ interface StartMainOptions {
 }
 
 const MAX_GATEWAY_START_ATTEMPTS = 3;
+let ensureGatewayRunningTask: Promise<boolean> | null = null;
 
 // 存量用户迁移：首次升级时默认开启 session-memory hook（幂等，只在 hooks.internal 未配置时写入）
 function migrateSessionMemoryHook(): void {
@@ -318,27 +323,50 @@ function syncKimiSearchEnv(): void {
 
 // 启动 Gateway（最多尝试 3 次，覆盖 Windows 冷启动慢导致的前两次超时）
 async function ensureGatewayRunning(source: string): Promise<boolean> {
-  // 启动前从配置同步 token，避免 Setup 后仍使用旧内存 token。
-  gateway.setToken(resolveGatewayAuthToken());
-  syncKimiSearchEnv();
-
-  for (let attempt = 1; attempt <= MAX_GATEWAY_START_ATTEMPTS; attempt++) {
-    if (attempt === 1) {
-      await gateway.start();
-    } else {
-      log.warn(`Gateway 启动重试 ${attempt}/${MAX_GATEWAY_START_ATTEMPTS}: ${source}`);
-      await gateway.restart();
-    }
-
-    if (gateway.getState() === "running") {
-      // 仅在真正启动成功后刷新“最近可用快照”，保证一键回退目标可启动。
-      recordLastKnownGoodConfigSnapshot();
-      log.info(`Gateway 启动成功（第 ${attempt} 次尝试）: ${source}`);
-      return true;
-    }
+  if (gateway.getState() === "running") {
+    return true;
   }
 
-  return false;
+  if (ensureGatewayRunningTask) {
+    log.info(`复用进行中的 Gateway 启动任务: ${source}`);
+    return ensureGatewayRunningTask;
+  }
+
+  const task = (async () => {
+    // 启动前从配置同步 token，避免 Setup 后仍使用旧内存 token。
+    gateway.setToken(resolveGatewayAuthToken());
+    syncKimiSearchEnv();
+
+    for (let attempt = 1; attempt <= MAX_GATEWAY_START_ATTEMPTS; attempt++) {
+      if (attempt > 1) {
+        log.warn(`Gateway 启动重试 ${attempt}/${MAX_GATEWAY_START_ATTEMPTS}: ${source}`);
+        await gateway.cleanupResidualGateway(`retry-${attempt}:${source}`);
+      }
+      await gateway.start();
+
+      if (gateway.getState() === "running") {
+        // 仅在真正启动成功后刷新“最近可用快照”，保证一键回退目标可启动。
+        recordLastKnownGoodConfigSnapshot();
+        log.info(`Gateway 启动成功（第 ${attempt} 次尝试）: ${source}`);
+        return true;
+      }
+
+      if (gateway.hasStartupLockConflict()) {
+        log.warn(`Gateway 启动检测到旧实例锁冲突，准备清理残留后重试: ${source}`);
+      }
+    }
+
+    return false;
+  })();
+
+  ensureGatewayRunningTask = task;
+  try {
+    return await task;
+  } finally {
+    if (ensureGatewayRunningTask === task) {
+      ensureGatewayRunningTask = null;
+    }
+  }
 }
 
 // 外部 OpenClaw 接管：进 Setup 向导，Step 0 展示冲突并让用户决定
@@ -348,7 +376,7 @@ async function handleExternalOpenclawTakeover(): Promise<void> {
 }
 
 async function startGatewayAndShowMain(source: string, opts: StartMainOptions = {}): Promise<boolean> {
-  const openOnFailure = opts.openOnFailure ?? true;
+  const openOnFailure = opts.openOnFailure ?? false;
   const reportFailure = opts.reportFailure ?? true;
 
   log.info(`启动链路开始: ${source}`);
@@ -381,12 +409,22 @@ async function startGatewayAndShowMain(source: string, opts: StartMainOptions = 
   return running;
 }
 
+async function openDashboard(source: string): Promise<void> {
+  if (gateway.getState() === "running") {
+    await showMainWindow();
+    return;
+  }
+  await startGatewayAndShowMain(source, { openOnFailure: false, reportFailure: true });
+}
+
 // 手动控制 Gateway：统一入口，确保启动前同步最新 token。
 function requestGatewayStart(source: string): void {
-  gateway.setToken(resolveGatewayAuthToken());
-  syncKimiSearchEnv();
-  gateway.start().catch((err) => {
-    log.error(`Gateway 启动失败(${source}): ${err}`);
+  ensureGatewayRunning(`manual-start:${source}`).then((running) => {
+    if (!running) {
+      log.error(`Gateway 启动失败(${source}): start attempts exhausted`);
+    }
+  }).catch((err) => {
+    log.error(`Gateway 启动失败(${source}): ${err instanceof Error ? err.message : String(err)}`);
   });
 }
 
@@ -456,7 +494,7 @@ async function quit(): Promise<void> {
 
 // ── Setup 完成后：启动 Gateway → 打开主窗口 ──
 
-setupManager.setOnComplete(async () => {
+setupManager.setOnComplete(async (options) => {
   const running = await ensureGatewayRunning("setup:complete");
   if (!running) {
     return false;
@@ -477,7 +515,9 @@ setupManager.setOnComplete(async () => {
     return false;
   }
 
-  await showMainWindow();
+  if (options?.openMainWindow !== false) {
+    await showMainWindow();
+  }
   recordSetupBaselineConfigSnapshot();
   return true;
 });
@@ -582,12 +622,17 @@ app.whenReady().then(async () => {
 
   // 下载进度 → 更新托盘 tooltip
   setProgressCallback((pct) => {
-    tray.setTooltip(pct != null ? `OneClaw — 下载更新 ${pct.toFixed(0)}%` : "OneClaw");
+    tray.setTooltip(pct != null ? `虾虾 — 下载更新 ${pct.toFixed(0)}%` : "虾虾");
   });
 
   tray.create({
     windowManager,
     gateway,
+    onOpenDashboard: () => {
+      openDashboard("tray:open-dashboard").catch((err) => {
+        log.error(`托盘打开主窗口失败: ${err}`);
+      });
+    },
     onRestartGateway: () => requestGatewayRestart("tray:restart"),
     onStartGateway: () => requestGatewayStart("tray:start"),
     onStopGateway: () => requestGatewayStop("tray:stop"),
@@ -668,7 +713,7 @@ app.on("second-instance", () => {
   if (setupManager.isSetupOpen()) {
     setupManager.focusSetup();
   } else {
-    showMainWindow().catch((err) => {
+    openDashboard("app:second-instance").catch((err) => {
       log.error(`second-instance 打开主窗口失败: ${err}`);
     });
   }
@@ -687,7 +732,7 @@ app.on("activate", () => {
   if (setupManager.isSetupOpen()) {
     setupManager.focusSetup();
   } else {
-    showMainWindow().catch((err) => {
+    openDashboard("app:activate").catch((err) => {
       log.error(`activate 打开主窗口失败: ${err}`);
     });
   }

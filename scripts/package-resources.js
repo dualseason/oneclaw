@@ -1434,12 +1434,31 @@ async function bundlePlugin(plugin, gatewayDir, targetId, opts) {
   let extracted = false;
   for (let attempt = 1; attempt <= 2; attempt++) {
     try {
-      // Windows: --force-local 防止冒号被当作远程主机分隔符；路径转正斜杠防止 GNU tar 解析失败
+      // Windows 上同时兼容系统自带 bsdtar（不支持 --force-local）和 GNU tar。
       const isWin = process.platform === "win32";
-      const forceLocal = isWin ? " --force-local" : "";
       const archivePath = isWin ? source.archivePath.replace(/\\/g, "/") : source.archivePath;
       const extractDir = isWin ? tmpDir.replace(/\\/g, "/") : tmpDir;
-      execSync(`tar${forceLocal} -xzf "${archivePath}" -C "${extractDir}"`, { stdio: "inherit" });
+      const commands = isWin
+        ? [
+            `tar -xzf "${archivePath}" -C "${extractDir}"`,
+            `tar --force-local -xzf "${archivePath}" -C "${extractDir}"`,
+          ]
+        : [`tar -xzf "${archivePath}" -C "${extractDir}"`];
+
+      let lastTarError = null;
+      for (const command of commands) {
+        try {
+          execSync(command, { stdio: "inherit" });
+          lastTarError = null;
+          break;
+        } catch (tarErr) {
+          lastTarError = tarErr;
+        }
+      }
+
+      if (lastTarError) {
+        throw lastTarError;
+      }
       extracted = true;
       break;
     } catch (err) {
