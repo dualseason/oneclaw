@@ -348,7 +348,12 @@ async function installSkillFromStore(state: AppViewState, slug: string) {
     if (result?.success) {
       skillStoreState.installedSlugs.add(slug);
     } else {
-      showSkillStoreToast(state, t("skillStore.installFailed"));
+      showSkillStoreToast(
+        state,
+        typeof result?.message === "string" && result.message.trim()
+          ? result.message
+          : t("skillStore.installFailed"),
+      );
     }
   } catch {
     showSkillStoreToast(state, t("skillStore.installFailed"));
@@ -367,7 +372,12 @@ async function uninstallSkillFromStore(state: AppViewState, slug: string) {
     if (result?.success) {
       skillStoreState.installedSlugs.delete(slug);
     } else {
-      showSkillStoreToast(state, t("skillStore.uninstallFailed"));
+      showSkillStoreToast(
+        state,
+        typeof result?.message === "string" && result.message.trim()
+          ? result.message
+          : t("skillStore.uninstallFailed"),
+      );
     }
   } catch {
     showSkillStoreToast(state, t("skillStore.uninstallFailed"));
