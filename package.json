@@ -21,7 +21,8 @@
     "clean": "rm -rf dist resources/runtime resources/gateway resources/targets out"
   },
   "dependencies": {
-    "electron-updater": "^6.3.9"
+    "electron-updater": "^6.3.9",
+    "extract-zip": "^2.0.1"
   },
   "devDependencies": {
     "@types/node": "^22.15.0",
