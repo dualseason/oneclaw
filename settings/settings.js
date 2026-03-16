@@ -389,8 +389,8 @@
       "advanced.cliUnavailable": "CLI action is not available in this app version",
       "advanced.cliOpFailed": "CLI operation failed",
       "advanced.cliUninstallConfirm": "Uninstall the 虾虾 terminal command now?",
-      "advanced.clawHubRegistry": "ClawHub Registry",
-      "advanced.clawHubRegistryPlaceholder": "https://clawhub.ai",
+      "advanced.clawHubRegistry": "SkillHub Registry",
+      "advanced.clawHubRegistryPlaceholder": "https://skillhub.tencent.com",
       "advanced.save": "Save",
       "advanced.saving": "Saving…",
       "appearance.title": "Appearance",
@@ -654,8 +654,8 @@
       "advanced.cliUnavailable": "当前应用版本不支持该 CLI 操作",
       "advanced.cliOpFailed": "CLI 操作失败",
       "advanced.cliUninstallConfirm": "确认要卸载 虾虾 终端命令吗？",
-      "advanced.clawHubRegistry": "ClawHub Registry",
-      "advanced.clawHubRegistryPlaceholder": "https://clawhub.ai",
+      "advanced.clawHubRegistry": "SkillHub 仓库地址",
+      "advanced.clawHubRegistryPlaceholder": "https://skillhub.tencent.com",
       "advanced.save": "保存",
       "advanced.saving": "保存中…",
       "appearance.title": "外观显示",
@@ -2599,7 +2599,7 @@
       }
 
       var data = result.data;
-      // 回填 ClawHub Registry
+  // 回填 SkillHub Registry
       if (els.clawHubRegistry) {
         els.clawHubRegistry.value = data.clawHubRegistry || "";
       }

@@ -15,7 +15,11 @@ import * as http from "http";
 import * as log from "./logger";
 import { readOneclawConfig, writeOneclawConfig } from "./oneclaw-config";
 
-const DEFAULT_REGISTRY = "https://clawhub.ai";
+const DEFAULT_REGISTRY = "https://skillhub.tencent.com";
+const LEGACY_DEFAULT_REGISTRIES = new Set([
+  "https://clawhub.ai",
+  "https://www.clawhub.ai",
+]);
 const FETCH_TIMEOUT_MS = 15_000;
 const SKILL_STORE_CONFIG = "skill-store.json";
 
@@ -76,19 +80,22 @@ function writeLegacySkillStoreConfig(data: Record<string, any>): void {
 export function readSkillStoreRegistry(): string {
   const oneclawConfig = readOneclawConfig();
   if (oneclawConfig?.skillStore?.registryUrl) {
-    return oneclawConfig.skillStore.registryUrl;
+    return normalizeRegistryUrl(oneclawConfig.skillStore.registryUrl);
   }
   const legacy = readLegacySkillStoreConfig();
-  return typeof legacy?.registryUrl === "string" ? legacy.registryUrl : "";
+  return typeof legacy?.registryUrl === "string"
+    ? normalizeRegistryUrl(legacy.registryUrl)
+    : "";
 }
 
 // 写入 registry URL（写到 oneclaw.config.json + legacy 文件双写）
 export function writeSkillStoreRegistry(url: string): void {
+  const normalizedUrl = normalizeRegistryUrl(url);
   const config = readOneclawConfig();
   if (config) {
-    if (url) {
+    if (normalizedUrl) {
       config.skillStore ??= {};
-      config.skillStore.registryUrl = url;
+      config.skillStore.registryUrl = normalizedUrl;
     } else {
       delete config.skillStore?.registryUrl;
     }
@@ -96,8 +103,8 @@ export function writeSkillStoreRegistry(url: string): void {
   }
   // legacy 文件双写保持兼容
   const legacyConfig = readLegacySkillStoreConfig();
-  if (url) {
-    legacyConfig.registryUrl = url;
+  if (normalizedUrl) {
+    legacyConfig.registryUrl = normalizedUrl;
   } else {
     delete legacyConfig.registryUrl;
   }
@@ -113,6 +120,17 @@ function registryUrl(): string {
     return custom.trim().replace(/\/+$/, "");
   }
   return DEFAULT_REGISTRY;
+}
+
+function normalizeRegistryUrl(url: string): string {
+  const trimmed = String(url ?? "").trim().replace(/\/+$/, "");
+  if (!trimmed) {
+    return "";
+  }
+  if (LEGACY_DEFAULT_REGISTRIES.has(trimmed)) {
+    return DEFAULT_REGISTRY;
+  }
+  return trimmed;
 }
 
 // ── HTTP 请求封装 ──

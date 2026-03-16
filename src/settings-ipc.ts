@@ -979,7 +979,7 @@ export function registerSettingsIpc(opts: SettingsIpcOptions = {}): void {
             config.hooks.internal.entries["session-memory"] = { enabled: sessionMemoryEnabled };
           }
 
-          // ClawHub Registry URL 写入独立文件（不污染 gateway config）
+          // SkillHub Registry URL 写入独立文件（不污染 gateway config）
           if (clawHubRegistry !== undefined) {
             writeSkillStoreRegistry(clawHubRegistry);
           }
