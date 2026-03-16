@@ -1,22 +1,18 @@
 /**
- * Minimal i18n module for OneClaw Chat UI.
- * ~25 string keys, Chinese / English.
- * Language detection: navigator.language or ?lang= URL param.
+ * Minimal i18n module for the desktop UI.
  */
 
 export type Locale = "zh" | "en";
 
 const dict: Record<Locale, Record<string, string>> = {
   zh: {
-    // App
-    "app.windowTitle": "虾虾 一键安装OpenClaw",
+    "app.windowTitle": "虾虾 - 一键安装 OpenClaw",
 
-    // Sidebar
     "sidebar.brand": "虾虾",
     "sidebar.newChat": "新建对话",
     "sidebar.settings": "设置",
     "sidebar.docs": "教程文档",
-    "sidebar.updateReady": "重新启动即可更新",
+    "sidebar.updateReady": "重启即可更新",
     "sidebar.updateDownloading": "正在下载更新 {percent}%",
     "sidebar.agent": "会话列表",
     "sidebar.fullUI": "打开 OpenClaw 网页端",
@@ -53,7 +49,6 @@ const dict: Record<Locale, Record<string, string>> = {
     "pairing.channel.feishu": "飞书",
     "pairing.channel.wecom": "企业微信",
 
-    // 技能管理
     "sidebar.skillStore": "技能",
     "skillStore.title": "技能",
     "skills.tabInstalled": "已安装",
@@ -90,13 +85,24 @@ const dict: Record<Locale, Record<string, string>> = {
     "skillStore.downloads": "下载量",
     "skillStore.installFailed": "安装失败，请稍后重试",
     "skillStore.uninstallFailed": "卸载失败，请稍后重试",
+    "skillStore.installSuccess": "安装成功",
+    "skillStore.uninstallSuccess": "卸载成功",
+    "skillStore.view": "查看",
+    "skillStore.details": "技能详情",
+    "skillStore.detailError": "加载详情失败",
+    "skillStore.author": "作者",
+    "skillStore.tags": "标签",
+    "skillStore.status": "状态",
+    "skillStore.notInstalled": "未安装",
+    "skillStore.copySlug": "复制 slug",
+    "skillStore.copySuccess": "slug 已复制",
+    "skillStore.copyFailed": "复制失败",
+    "skillStore.close": "关闭",
 
-    // OneClaw settings page
     "settings.title": "设置",
     "settings.subtitle": "管理外观显示与聊天展示偏好",
     "settings.backToChat": "返回对话",
 
-    // Chat
     "chat.placeholder": "输入消息…",
     "chat.placeholder.busy": "继续发送消息将排队等待…",
     "chat.placeholder.image": "添加消息或粘贴更多图片…",
@@ -118,45 +124,39 @@ const dict: Record<Locale, Record<string, string>> = {
     "chat.removeQueuedMessage": "移除排队消息",
     "chat.attachmentPreview": "图片预览",
 
-    // Share prompt
     "sharePrompt.title": "分享 虾虾 给朋友",
-    "sharePrompt.subtitle": "复制下面这段文案分享给你的朋友或群聊，作者会非常感谢你哟😘",
+    "sharePrompt.subtitle": "复制下面这段文案分享给你的朋友或群聊，作者会非常感谢你。",
     "sharePrompt.copy": "复制文案",
     "sharePrompt.copied": "已复制",
     "sharePrompt.close": "关闭",
     "sharePrompt.copyFailed": "复制失败，请手动选择文案复制",
 
-    // Senders
     "sender.you": "你",
     "sender.assistant": "助手",
     "sender.system": "系统",
 
-    // Status
     "status.health": "健康状态",
     "status.ok": "正常",
     "status.offline": "离线",
 
-    // Theme
     "theme.system": "跟随系统",
     "theme.light": "浅色",
     "theme.dark": "深色",
 
-    // Errors
     "error.disconnected": "已断开与 Gateway 的连接。",
   },
-  en: {
-    // App
-    "app.windowTitle": "虾虾 - One-click installer for OpenClaw",
 
-    // Sidebar
-    "sidebar.brand": "虾虾",
+  en: {
+    "app.windowTitle": "XiāXiā - One-click installer for OpenClaw",
+
+    "sidebar.brand": "XiāXiā",
     "sidebar.newChat": "New Chat",
     "sidebar.settings": "Settings",
     "sidebar.docs": "Docs",
     "sidebar.updateReady": "Restart to update",
     "sidebar.updateDownloading": "Downloading update {percent}%",
     "sidebar.agent": "Sessions",
-    "sidebar.fullUI": "OpenClaw Web UI",
+    "sidebar.fullUI": "Open OpenClaw Web UI",
     "sidebar.deleteSession": "Delete this session?\n\nThe transcript will be archived.",
     "sidebar.preferences": "Preferences",
     "sidebar.appearance": "Appearance",
@@ -190,7 +190,6 @@ const dict: Record<Locale, Record<string, string>> = {
     "pairing.channel.feishu": "Feishu",
     "pairing.channel.wecom": "WeCom",
 
-    // Skill Manager
     "sidebar.skillStore": "Skills",
     "skillStore.title": "Skills",
     "skills.tabInstalled": "Installed",
@@ -205,9 +204,9 @@ const dict: Record<Locale, Record<string, string>> = {
     "skills.groupInstalled": "Installed Skills",
     "skills.groupExtra": "Extra Skills",
     "skills.groupOther": "Other Skills",
-    "skills.eligible": "eligible",
-    "skills.blocked": "blocked",
-    "skills.disabled": "disabled",
+    "skills.eligible": "Eligible",
+    "skills.blocked": "Blocked",
+    "skills.disabled": "Disabled",
     "skills.enable": "Enable",
     "skills.disable": "Disable",
     "skills.missing": "Missing",
@@ -227,16 +226,27 @@ const dict: Record<Locale, Record<string, string>> = {
     "skillStore.downloads": "Downloads",
     "skillStore.installFailed": "Install failed. Please try again later.",
     "skillStore.uninstallFailed": "Uninstall failed. Please try again later.",
+    "skillStore.installSuccess": "Installed successfully.",
+    "skillStore.uninstallSuccess": "Uninstalled successfully.",
+    "skillStore.view": "View",
+    "skillStore.details": "Details",
+    "skillStore.detailError": "Failed to load skill details.",
+    "skillStore.author": "Author",
+    "skillStore.tags": "Tags",
+    "skillStore.status": "Status",
+    "skillStore.notInstalled": "Not installed",
+    "skillStore.copySlug": "Copy slug",
+    "skillStore.copySuccess": "Slug copied.",
+    "skillStore.copyFailed": "Copy failed.",
+    "skillStore.close": "Close",
 
-    // OneClaw settings page
     "settings.title": "Settings",
     "settings.subtitle": "Manage appearance and chat display preferences",
     "settings.backToChat": "Back to chat",
 
-    // Chat
-    "chat.placeholder": "Type a message...",
+    "chat.placeholder": "Type a message…",
     "chat.placeholder.busy": "Messages sent now will be queued…",
-    "chat.placeholder.image": "Add a message or paste more images...",
+    "chat.placeholder.image": "Add a message or paste more images…",
     "chat.placeholder.disconnected": "Connect to the gateway to start chatting…",
     "chat.send": "Send",
     "chat.queue": "Queue",
@@ -244,10 +254,10 @@ const dict: Record<Locale, Record<string, string>> = {
     "chat.newSession": "New session",
     "chat.confirmNewSession":
       "Unmemorized content in the current conversation will be cleared. Continue?",
-    "chat.loading": "Loading chat…",
+    "chat.loading": "Loading…",
     "chat.newMessages": "New messages",
     "chat.queued": "Queued",
-    "chat.compacting": "Compacting context...",
+    "chat.compacting": "Compacting context…",
     "chat.compacted": "Context compacted",
     "chat.exitFocus": "Exit focus mode",
     "chat.messageLabel": "Message",
@@ -256,31 +266,26 @@ const dict: Record<Locale, Record<string, string>> = {
     "chat.removeQueuedMessage": "Remove queued message",
     "chat.attachmentPreview": "Attachment preview",
 
-    // Share prompt
-    "sharePrompt.title": "Share 虾虾 with friends",
+    "sharePrompt.title": "Share XiāXiā with friends",
     "sharePrompt.subtitle":
-      "Copy this text and share it with your friends or group chats. The creator will really appreciate it 😘",
+      "Copy this text and share it with your friends or group chats. The creator will appreciate it.",
     "sharePrompt.copy": "Copy text",
     "sharePrompt.copied": "Copied",
     "sharePrompt.close": "Close",
     "sharePrompt.copyFailed": "Copy failed. Please select and copy manually",
 
-    // Senders
     "sender.you": "You",
     "sender.assistant": "Assistant",
     "sender.system": "System",
 
-    // Status
     "status.health": "Health",
     "status.ok": "OK",
     "status.offline": "Offline",
 
-    // Theme
     "theme.system": "System",
     "theme.light": "Light",
     "theme.dark": "Dark",
 
-    // Errors
     "error.disconnected": "Disconnected from gateway.",
   },
 };
@@ -288,14 +293,12 @@ const dict: Record<Locale, Record<string, string>> = {
 let currentLocale: Locale = detectLocale();
 
 function detectLocale(): Locale {
-  // URL param takes priority
   if (typeof window !== "undefined" && window.location?.search) {
     const params = new URLSearchParams(window.location.search);
     const lang = params.get("lang");
     if (lang?.startsWith("zh")) return "zh";
     if (lang?.startsWith("en")) return "en";
   }
-  // Browser language
   if (typeof navigator !== "undefined") {
     const lang = navigator.language || "";
     if (lang.startsWith("zh")) return "zh";
@@ -303,20 +306,14 @@ function detectLocale(): Locale {
   return "en";
 }
 
-/**
- * Translate a key to the current locale.
- * Falls back to English, then to the key itself.
- */
 export function t(key: string): string {
   return dict[currentLocale]?.[key] ?? dict.en[key] ?? key;
 }
 
-/** Get the current locale. */
 export function getLocale(): Locale {
   return currentLocale;
 }
 
-/** Set the locale explicitly. */
 export function setLocale(locale: Locale): void {
   currentLocale = locale;
 }

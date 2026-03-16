@@ -17,7 +17,11 @@ import { renderExecApprovalPrompt } from "./views/exec-approval.ts";
 import { renderGatewayUrlConfirmation } from "./views/gateway-url-confirmation.ts";
 import { renderRestartGatewayDialog } from "./views/restart-gateway-dialog.ts";
 import { patchSession, loadSessions } from "./controllers/sessions.ts";
-import { renderSkillStoreView, type SkillStoreState } from "./skill-store-view.ts";
+import {
+  renderSkillStoreView,
+  type SkillDetailItem,
+  type SkillStoreState,
+} from "./skill-store-view.ts";
 import type { SkillStatusEntry } from "./types.ts";
 import oneClawLogo from "../assets/openclaw-favicon.svg";
 import {
@@ -249,6 +253,10 @@ const skillStoreState: SkillStoreState = {
   nextCursor: null,
   installingSlugs: new Set(),
   toastMessage: null,
+  detailSlug: null,
+  detailData: null,
+  detailLoading: false,
+  detailError: null,
 };
 
 // toast 定时器句柄
@@ -264,6 +272,56 @@ function showSkillStoreToast(state: AppViewState, message: string) {
     skillStoreToastTimer = null;
     state.requestUpdate();
   }, 4000);
+}
+
+function closeSkillStoreDetail(state: AppViewState) {
+  skillStoreState.detailSlug = null;
+  skillStoreState.detailData = null;
+  skillStoreState.detailLoading = false;
+  skillStoreState.detailError = null;
+  state.requestUpdate();
+}
+
+async function openSkillStoreDetail(state: AppViewState, slug: string) {
+  if (!window.oneclaw?.skillStoreDetail) {
+    return;
+  }
+
+  skillStoreState.detailSlug = slug;
+  skillStoreState.detailLoading = true;
+  skillStoreState.detailError = null;
+  skillStoreState.detailData = null;
+  state.requestUpdate();
+
+  try {
+    const result = await window.oneclaw.skillStoreDetail({ slug });
+    if (skillStoreState.detailSlug !== slug) {
+      return;
+    }
+    if (result?.success && result.data) {
+      skillStoreState.detailData = result.data as SkillDetailItem;
+    } else {
+      skillStoreState.detailError = result?.message ?? t("skillStore.detailError");
+    }
+  } catch {
+    if (skillStoreState.detailSlug === slug) {
+      skillStoreState.detailError = t("skillStore.detailError");
+    }
+  } finally {
+    if (skillStoreState.detailSlug === slug) {
+      skillStoreState.detailLoading = false;
+      state.requestUpdate();
+    }
+  }
+}
+
+async function copySkillStoreSlug(state: AppViewState, slug: string) {
+  try {
+    await navigator.clipboard.writeText(slug);
+    showSkillStoreToast(state, t("skillStore.copySuccess"));
+  } catch {
+    showSkillStoreToast(state, t("skillStore.copyFailed"));
+  }
 }
 let skillStoreDataLoaded = false;
 
@@ -347,6 +405,14 @@ async function installSkillFromStore(state: AppViewState, slug: string) {
     const result = await window.oneclaw.skillStoreInstall({ slug });
     if (result?.success) {
       skillStoreState.installedSlugs.add(slug);
+      await refreshInstalledSlugs();
+      void loadSkills(state as unknown as SkillsState);
+      showSkillStoreToast(
+        state,
+        typeof result?.message === "string" && result.message.trim()
+          ? result.message
+          : t("skillStore.installSuccess"),
+      );
     } else {
       showSkillStoreToast(
         state,
@@ -371,6 +437,14 @@ async function uninstallSkillFromStore(state: AppViewState, slug: string) {
     const result = await window.oneclaw.skillStoreUninstall({ slug });
     if (result?.success) {
       skillStoreState.installedSlugs.delete(slug);
+      await refreshInstalledSlugs();
+      void loadSkills(state as unknown as SkillsState);
+      showSkillStoreToast(
+        state,
+        typeof result?.message === "string" && result.message.trim()
+          ? result.message
+          : t("skillStore.uninstallSuccess"),
+      );
     } else {
       showSkillStoreToast(
         state,
@@ -1057,6 +1131,9 @@ export function renderApp(state: AppViewState) {
                         : renderSkillStoreView(skillStoreState, {
                             onInstall: (slug) => void installSkillFromStore(state, slug),
                             onUninstall: (slug) => void uninstallSkillFromStore(state, slug),
+                            onOpenDetail: (slug) => void openSkillStoreDetail(state, slug),
+                            onCloseDetail: () => closeSkillStoreDetail(state),
+                            onCopySlug: (slug) => void copySkillStoreSlug(state, slug),
                           })
                       }
                     </section>

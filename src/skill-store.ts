@@ -1,8 +1,10 @@
 import { app, ipcMain } from "electron";
 import { execFile } from "child_process";
+import { createHash } from "crypto";
 import * as fs from "fs";
 import * as http from "http";
 import * as https from "https";
+import * as os from "os";
 import * as path from "path";
 import {
   resolveClawhubEntry,
@@ -14,16 +16,30 @@ import {
 import * as log from "./logger";
 import { readOneclawConfig, writeOneclawConfig } from "./oneclaw-config";
 
+const extractZip = require("extract-zip") as (
+  zipPath: string,
+  options: { dir: string },
+) => Promise<void>;
+
 const DEFAULT_REGISTRY = "https://skillhub.tencent.com";
 const TENCENT_SKILLHUB_DATA_URL =
   "https://cloudcache.tencentcs.com/qcloud/tea/app/data/skills.2d46363b.json?max_age=31536000";
+const TENCENT_SKILLHUB_SEARCH_URL = "https://lightmake.site/api/v1/search";
+const TENCENT_SKILLHUB_PRIMARY_DOWNLOAD_URL_TEMPLATE =
+  "https://lightmake.site/api/v1/download?slug={slug}";
+const TENCENT_SKILLHUB_FALLBACK_DOWNLOAD_URL_TEMPLATE =
+  "https://skillhub-1388575217.cos.ap-guangzhou.myqcloud.com/skills/{slug}.zip";
 const DEPRECATED_REGISTRIES = new Set([
   "https://clawhub.ai",
   "https://www.clawhub.ai",
 ]);
 const FETCH_TIMEOUT_MS = 15_000;
+const DOWNLOAD_TIMEOUT_MS = 30_000;
+const MAX_DOWNLOAD_REDIRECTS = 5;
 const TENCENT_SKILLHUB_CACHE_TTL_MS = 5 * 60_000;
 const SKILL_STORE_CONFIG = "skill-store.json";
+const SKILLS_STORE_LOCKFILE = ".skills_store_lock.json";
+const CLAWHUB_LOCKFILE_RELATIVE_PATH = path.join(".clawhub", "lock.json");
 
 const debugLog = (msg: string) => {
   if (!app.isPackaged) log.info(`[skill-store] ${msg}`);
@@ -38,12 +54,14 @@ export type SkillSummary = {
   highlighted: boolean;
   updatedAt: string;
   author: string;
+  homepage?: string;
 };
 
 export type SkillDetail = SkillSummary & {
   readme: string;
   author: string;
   tags: string[];
+  homepage?: string;
 };
 
 type ListResult = {
@@ -78,6 +96,11 @@ type TencentSkillHubCatalog = {
   featured?: string[];
   categories?: Record<string, string[]>;
   skills?: TencentSkillHubItem[];
+};
+
+type TencentSkillHubSearchResponse = {
+  results?: TencentSkillHubItem[];
+  items?: TencentSkillHubItem[];
 };
 
 type SkillStoreBackend = "tencent-skillhub" | "legacy-registry";
@@ -251,6 +274,39 @@ function normalizeIsoDate(value: unknown): string {
   return "";
 }
 
+function fillSlugTemplate(template: string, slug: string): string {
+  const raw = String(template ?? "").trim();
+  if (!raw) {
+    return "";
+  }
+  return raw.includes("{slug}") ? raw.replaceAll("{slug}", encodeURIComponent(slug)) : raw;
+}
+
+function sanitizeSkillHomepage(value: unknown): string {
+  const raw = String(value ?? "").trim();
+  if (!raw) {
+    return "";
+  }
+
+  try {
+    const hostname = new URL(raw).hostname.toLowerCase();
+    if (
+      hostname.includes("clawhub.ai") ||
+      hostname.includes("oneclaw.cn") ||
+      hostname.includes("www.oneclaw.cn")
+    ) {
+      return "";
+    }
+    return raw;
+  } catch {
+    return "";
+  }
+}
+
+function sha256Hex(buffer: Buffer): string {
+  return createHash("sha256").update(buffer).digest("hex");
+}
+
 function preferredTencentDescription(item: TencentSkillHubItem): string {
   const zh = String(item.description_zh ?? "").trim();
   if (zh) {
@@ -291,6 +347,7 @@ function mapLegacyItem(raw: any): SkillSummary {
     highlighted: true,
     updatedAt: raw.updatedAt ? new Date(raw.updatedAt).toISOString() : "",
     author: raw.author ?? raw.owner ?? "",
+    homepage: sanitizeSkillHomepage(raw.homepage),
   };
 }
 
@@ -305,6 +362,7 @@ function mapTencentItem(raw: TencentSkillHubItem, featured: Set<string>): SkillS
     highlighted: featured.has(slug),
     updatedAt: normalizeIsoDate(raw.updated_at),
     author: String(raw.owner ?? "").trim(),
+    homepage: sanitizeSkillHomepage(raw.homepage),
   };
 }
 
@@ -483,6 +541,7 @@ async function getTencentSkillHubDetail(slug: string): Promise<SkillDetail> {
     readme: buildTencentReadme(item),
     author: String(item.owner ?? "").trim(),
     tags: Array.isArray(item.tags) ? item.tags.map((tag) => String(tag)) : [],
+    homepage: sanitizeSkillHomepage(item.homepage),
   };
 }
 
@@ -538,6 +597,7 @@ async function getLegacySkillDetail(slug: string): Promise<SkillDetail> {
     readme: raw.readme ?? "",
     author: raw.author ?? raw.owner ?? "",
     tags: Array.isArray(raw.tagsList) ? raw.tagsList : [],
+    homepage: sanitizeSkillHomepage(raw.homepage),
   };
 }
 
@@ -564,6 +624,299 @@ async function getSkillDetail(slug: string): Promise<SkillDetail> {
   return resolveSkillStoreBackend() === "tencent-skillhub"
     ? getTencentSkillHubDetail(slug)
     : getLegacySkillDetail(slug);
+}
+
+async function fetchTencentRemoteSearchExact(slug: string): Promise<TencentSkillHubItem | null> {
+  const trimmed = String(slug ?? "").trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  const params = new URLSearchParams({
+    q: trimmed,
+    limit: "20",
+  });
+  const raw = await jsonGet<TencentSkillHubSearchResponse>(`${TENCENT_SKILLHUB_SEARCH_URL}?${params}`);
+  const items = Array.isArray(raw.results)
+    ? raw.results
+    : Array.isArray(raw.items)
+      ? raw.items
+      : [];
+  return (
+    items.find((item) => String(item?.slug ?? "").trim() === trimmed) ?? null
+  );
+}
+
+function downloadBuffer(url: string, redirectCount = 0): Promise<Buffer> {
+  debugLog(`DOWNLOAD ${url}`);
+  const startMs = Date.now();
+
+  return new Promise((resolve, reject) => {
+    const parsed = new URL(url);
+    const mod = parsed.protocol === "https:" ? https : http;
+    const req = mod.get(
+      url,
+      {
+        timeout: DOWNLOAD_TIMEOUT_MS,
+        headers: {
+          "User-Agent": "oneclaw-skill-store",
+          Accept: "*/*",
+        },
+      },
+      (res) => {
+        const statusCode = res.statusCode ?? 0;
+        const location = res.headers.location;
+
+        if (
+          location &&
+          [301, 302, 303, 307, 308].includes(statusCode) &&
+          redirectCount < MAX_DOWNLOAD_REDIRECTS
+        ) {
+          const nextUrl = new URL(location, url).toString();
+          debugLog(`DOWNLOAD ${url} -> redirect ${statusCode} ${nextUrl}`);
+          res.resume();
+          downloadBuffer(nextUrl, redirectCount + 1).then(resolve).catch(reject);
+          return;
+        }
+
+        if (statusCode < 200 || statusCode >= 300) {
+          debugLog(`DOWNLOAD ${url} -> ${statusCode} (${Date.now() - startMs}ms)`);
+          res.resume();
+          reject(new Error(`HTTP ${statusCode}`));
+          return;
+        }
+
+        const chunks: Buffer[] = [];
+        res.on("data", (chunk: Buffer) => chunks.push(chunk));
+        res.on("end", () => {
+          const body = Buffer.concat(chunks);
+          debugLog(`DOWNLOAD ${url} -> ${statusCode} ${body.length}B (${Date.now() - startMs}ms)`);
+          resolve(body);
+        });
+      },
+    );
+
+    req.on("error", (err) => {
+      debugLog(`DOWNLOAD ${url} -> error: ${err.message} (${Date.now() - startMs}ms)`);
+      reject(err);
+    });
+
+    req.on("timeout", () => {
+      debugLog(`DOWNLOAD ${url} -> timeout (${Date.now() - startMs}ms)`);
+      req.destroy();
+      reject(new Error("request timeout"));
+    });
+  });
+}
+
+async function downloadBufferWithFallback(
+  urls: string[],
+  opts?: { expectedSha256?: string },
+): Promise<{ body: Buffer; url: string }> {
+  const seen = new Set<string>();
+  const candidates = urls.map((value) => String(value ?? "").trim()).filter((value) => {
+    if (!value || seen.has(value)) {
+      return false;
+    }
+    seen.add(value);
+    return true;
+  });
+
+  if (candidates.length === 0) {
+    throw new Error("No download URL candidates available");
+  }
+
+  let lastError: Error | null = null;
+  for (const candidate of candidates) {
+    try {
+      const body = await downloadBuffer(candidate);
+      if (opts?.expectedSha256) {
+        const actual = sha256Hex(body);
+        if (actual !== opts.expectedSha256) {
+          throw new Error(
+            `SHA256 mismatch: expected ${opts.expectedSha256}, got ${actual}`,
+          );
+        }
+      }
+      return { body, url: candidate };
+    } catch (err: any) {
+      lastError = err instanceof Error ? err : new Error(String(err));
+    }
+  }
+
+  throw lastError ?? new Error("Download failed");
+}
+
+function skillStoreLockPath(): string {
+  return path.join(workspaceDir(), SKILLS_STORE_LOCKFILE);
+}
+
+function clawhubLockPath(): string {
+  return path.join(workspaceDir(), CLAWHUB_LOCKFILE_RELATIVE_PATH);
+}
+
+function readJsonObject(filePath: string): Record<string, any> {
+  try {
+    const raw = JSON.parse(fs.readFileSync(filePath, "utf-8"));
+    return raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
+  } catch {
+    return {};
+  }
+}
+
+function writeJsonFile(filePath: string, data: Record<string, any>): void {
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, JSON.stringify(data, null, 2) + "\n", "utf-8");
+}
+
+function updateSkillStoreLocks(entry: {
+  slug: string;
+  name: string;
+  version: string;
+  primaryZipUrl: string;
+}): void {
+  const lockPath = skillStoreLockPath();
+  const lock = readJsonObject(lockPath);
+  lock.version = 1;
+  if (!lock.skills || typeof lock.skills !== "object" || Array.isArray(lock.skills)) {
+    lock.skills = {};
+  }
+  lock.skills[entry.slug] = {
+    name: entry.name,
+    zip_url: entry.primaryZipUrl,
+    source: "skillhub",
+    version: entry.version,
+  };
+  writeJsonFile(lockPath, lock);
+
+  const compatLockPath = clawhubLockPath();
+  const compatLock = readJsonObject(compatLockPath);
+  compatLock.version = 1;
+  if (
+    !compatLock.skills ||
+    typeof compatLock.skills !== "object" ||
+    Array.isArray(compatLock.skills)
+  ) {
+    compatLock.skills = {};
+  }
+  compatLock.skills[entry.slug] = {
+    version: entry.version,
+    installedAt: Date.now(),
+  };
+  writeJsonFile(compatLockPath, compatLock);
+}
+
+function removeSkillStoreLocks(slug: string): void {
+  const lockPath = skillStoreLockPath();
+  const lock = readJsonObject(lockPath);
+  if (lock.skills && typeof lock.skills === "object" && !Array.isArray(lock.skills)) {
+    delete lock.skills[slug];
+    lock.version = 1;
+    writeJsonFile(lockPath, lock);
+  }
+
+  const compatLockPath = clawhubLockPath();
+  const compatLock = readJsonObject(compatLockPath);
+  if (
+    compatLock.skills &&
+    typeof compatLock.skills === "object" &&
+    !Array.isArray(compatLock.skills)
+  ) {
+    delete compatLock.skills[slug];
+    compatLock.version = 1;
+    writeJsonFile(compatLockPath, compatLock);
+  }
+}
+
+async function installTencentSkill(slug: string): Promise<SkillOperationResult> {
+  const trimmed = String(slug ?? "").trim();
+  if (!trimmed) {
+    return { success: false, message: "Missing skill slug" };
+  }
+
+  try {
+    let catalogSkill: TencentSkillHubItem | undefined;
+    try {
+      const catalog = await loadTencentSkillHubCatalog();
+      catalogSkill = getTencentItems(catalog).find(
+        (item) => String(item.slug ?? "").trim() === trimmed,
+      );
+    } catch (err: any) {
+      debugLog(`catalog lookup failed for ${trimmed}: ${err?.message ?? err}`);
+    }
+    let remoteSkill: TencentSkillHubItem | null = null;
+    if (!catalogSkill) {
+      try {
+        remoteSkill = await fetchTencentRemoteSearchExact(trimmed);
+      } catch (err: any) {
+        debugLog(`remote search fallback failed for ${trimmed}: ${err?.message ?? err}`);
+      }
+    }
+    const skill =
+      catalogSkill ??
+      remoteSkill ??
+      ({ slug: trimmed, name: trimmed, version: "", owner: "" } satisfies TencentSkillHubItem);
+
+    const primaryZipUrl = fillSlugTemplate(TENCENT_SKILLHUB_PRIMARY_DOWNLOAD_URL_TEMPLATE, trimmed);
+    const fallbackZipUrl = fillSlugTemplate(
+      TENCENT_SKILLHUB_FALLBACK_DOWNLOAD_URL_TEMPLATE,
+      trimmed,
+    );
+    const expectedSha256 = String((skill as any)?.sha256 ?? "").trim().toLowerCase();
+    const targetDir = path.join(skillsBaseDir(), trimmed);
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "oneclaw-skillhub-"));
+
+    try {
+      const zipPath = path.join(tempDir, `${trimmed}.zip`);
+      const stageDir = path.join(tempDir, "stage");
+      const { body } = await downloadBufferWithFallback(
+        [primaryZipUrl, fallbackZipUrl],
+        expectedSha256 ? { expectedSha256 } : undefined,
+      );
+      fs.writeFileSync(zipPath, body);
+      fs.mkdirSync(stageDir, { recursive: true });
+      await extractZip(zipPath, { dir: stageDir });
+
+      fs.rmSync(targetDir, { recursive: true, force: true });
+      fs.mkdirSync(path.dirname(targetDir), { recursive: true });
+      fs.cpSync(stageDir, targetDir, { recursive: true, force: true });
+
+      updateSkillStoreLocks({
+        slug: trimmed,
+        name: String(skill.name ?? trimmed).trim() || trimmed,
+        version: String(skill.version ?? "").trim(),
+        primaryZipUrl,
+      });
+
+      return {
+        success: true,
+        message: `已安装 ${String(skill.name ?? trimmed).trim() || trimmed}`,
+      };
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  } catch (err: any) {
+    return {
+      success: false,
+      message: `安装失败：${err?.message ?? String(err)}`,
+    };
+  }
+}
+
+async function uninstallTencentSkill(slug: string): Promise<SkillOperationResult> {
+  const resolved = resolveInstalledSlug(slug);
+  const targetDir = path.join(skillsBaseDir(), resolved);
+
+  try {
+    fs.rmSync(targetDir, { recursive: true, force: true });
+    removeSkillStoreLocks(resolved);
+    return { success: true, message: `已卸载 ${resolved}` };
+  } catch (err: any) {
+    return {
+      success: false,
+      message: `卸载失败：${err?.message ?? String(err)}`,
+    };
+  }
 }
 
 function workspaceDir(): string {
@@ -621,11 +974,7 @@ function execClawhub(args: string[]): Promise<{ stdout: string; stderr: string }
 
 async function installSkill(slug: string): Promise<SkillOperationResult> {
   if (resolveSkillStoreBackend() === "tencent-skillhub") {
-    return {
-      success: false,
-      message:
-        "\u817e\u8baf SkillHub \u76ee\u5f55\u5df2\u63a5\u901a\uff0c\u4f46\u5b83\u6ca1\u6709\u517c\u5bb9\u5f53\u524d\u5185\u7f6e ClawHub CLI \u7684\u5b89\u88c5\u63a5\u53e3\uff0c\u6682\u65f6\u53ea\u652f\u6301\u6d4f\u89c8\u548c\u641c\u7d22\u3002",
-    };
+    return installTencentSkill(slug);
   }
 
   try {
@@ -660,6 +1009,10 @@ function resolveInstalledSlug(nameOrSlug: string): string {
 }
 
 async function uninstallSkill(slug: string): Promise<SkillOperationResult> {
+  if (resolveSkillStoreBackend() === "tencent-skillhub") {
+    return uninstallTencentSkill(slug);
+  }
+
   try {
     const resolved = resolveInstalledSlug(slug);
     debugLog(`uninstall: "${slug}" -> resolved="${resolved}"`);

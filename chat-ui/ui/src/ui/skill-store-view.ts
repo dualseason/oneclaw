@@ -1,7 +1,3 @@
-/**
- * 技能管理视图：搜索栏 + 排序栏 + 技能卡片列表 + 加载更多。
- * 已安装技能排在前面，未安装技能排在后面。
- */
 import { html, nothing } from "lit";
 import { t } from "./i18n.ts";
 
@@ -14,6 +10,12 @@ export type SkillItem = {
   highlighted: boolean;
   updatedAt: string;
   author: string;
+  homepage?: string;
+};
+
+export type SkillDetailItem = SkillItem & {
+  readme: string;
+  tags: string[];
 };
 
 export type SkillStoreState = {
@@ -26,21 +28,26 @@ export type SkillStoreState = {
   nextCursor: string | null;
   installingSlugs: Set<string>;
   toastMessage: string | null;
+  detailSlug: string | null;
+  detailData: SkillDetailItem | null;
+  detailLoading: boolean;
+  detailError: string | null;
 };
 
 export type SkillStoreCallbacks = {
   onInstall: (slug: string) => void;
   onUninstall: (slug: string) => void;
+  onOpenDetail: (slug: string) => void;
+  onCloseDetail: () => void;
+  onCopySlug: (slug: string) => void;
 };
 
-// 字母头像颜色表（根据 slug 哈希取色）
 const AVATAR_COLORS = [
   "#c0392b", "#d35400", "#e67e22", "#f39c12",
   "#27ae60", "#1abc9c", "#16a085", "#2980b9",
   "#3498db", "#8e44ad", "#9b59b6", "#34495e",
 ];
 
-// 根据 slug 生成确定性颜色
 function avatarColor(slug: string): string {
   let hash = 0;
   for (let i = 0; i < slug.length; i++) {
@@ -49,24 +56,27 @@ function avatarColor(slug: string): string {
   return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length];
 }
 
-// 格式化下载数：>1000 显示 1.2k
 function formatDownloads(n: number): string {
-  if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
+  if (n >= 1000) {
+    return `${(n / 1000).toFixed(1)}k`;
+  }
   return String(n);
 }
 
-// 渲染单个技能卡片
 function renderSkillCard(
   skill: SkillItem,
   installed: boolean,
   installing: boolean,
+  selected: boolean,
+  onOpenDetail: () => void,
   onInstall: () => void,
   onUninstall: () => void,
 ) {
   const letter = (skill.name || skill.slug || "?").charAt(0).toUpperCase();
   const bgColor = avatarColor(skill.slug);
+
   return html`
-    <div class="skill-store__card">
+    <div class="skill-store__card ${selected ? "skill-store__card--active" : ""}">
       <div class="skill-store__card-header">
         <div class="skill-store__card-icon" style="background: ${bgColor}; color: #fff;">
           <span class="skill-store__card-letter">${letter}</span>
@@ -75,10 +85,21 @@ function renderSkillCard(
           <div class="skill-store__card-name">${skill.name}</div>
           <div class="skill-store__card-meta">
             ${skill.version ? html`v${skill.version}` : nothing}
-            ${skill.downloads > 0 ? html`<span class="skill-store__card-downloads">${formatDownloads(skill.downloads)} ${t("skillStore.downloads")}</span>` : nothing}
+            ${skill.downloads > 0
+              ? html`
+                  <span class="skill-store__card-downloads">
+                    ${formatDownloads(skill.downloads)} ${t("skillStore.downloads")}
+                  </span>
+                `
+              : nothing}
           </div>
         </div>
         <div class="skill-store__card-action">
+          <button
+            class="skill-store__btn skill-store__btn--ghost"
+            type="button"
+            @click=${onOpenDetail}
+          >${t("skillStore.view")}</button>
           ${installed
             ? html`
                 <button
@@ -103,7 +124,6 @@ function renderSkillCard(
   `;
 }
 
-// 已安装技能排在前面
 function sortSkills(skills: SkillItem[], installedSlugs: Set<string>): SkillItem[] {
   return [...skills].sort((a, b) => {
     const ai = installedSlugs.has(a.slug) ? 0 : 1;
@@ -112,12 +132,139 @@ function sortSkills(skills: SkillItem[], installedSlugs: Set<string>): SkillItem
   });
 }
 
-// 技能管理主视图
+function resolveDetailSkill(state: SkillStoreState): SkillItem | SkillDetailItem | null {
+  if (!state.detailSlug) {
+    return null;
+  }
+  if (state.detailData?.slug === state.detailSlug) {
+    return state.detailData;
+  }
+  return state.skills.find((skill) => skill.slug === state.detailSlug) ?? null;
+}
+
+function renderDetailModal(state: SkillStoreState, callbacks: SkillStoreCallbacks) {
+  const skill = resolveDetailSkill(state);
+  if (!skill) {
+    return nothing;
+  }
+
+  const detail = state.detailData?.slug === skill.slug ? state.detailData : null;
+  const tags = Array.isArray(detail?.tags) ? detail.tags : [];
+  const installed = state.installedSlugs.has(skill.slug);
+  const installing = state.installingSlugs.has(skill.slug);
+
+  return html`
+    <div class="skill-store__modal-backdrop" @click=${callbacks.onCloseDetail}>
+      <section
+        class="skill-store__modal"
+        role="dialog"
+        aria-modal="true"
+        aria-label=${t("skillStore.details")}
+        @click=${(event: Event) => event.stopPropagation()}
+      >
+        <div class="skill-store__modal-header">
+          <div>
+            <div class="skill-store__modal-title">${skill.name}</div>
+            <div class="skill-store__modal-subtitle">${skill.slug}</div>
+          </div>
+          <button
+            class="skill-store__icon-btn"
+            type="button"
+            @click=${callbacks.onCloseDetail}
+            aria-label=${t("skillStore.close")}
+          >×</button>
+        </div>
+
+        <div class="skill-store__modal-body">
+          ${skill.description
+            ? html`<p class="skill-store__modal-desc">${skill.description}</p>`
+            : nothing}
+
+          <div class="skill-store__detail-grid">
+            <div class="skill-store__detail-item">
+              <span class="skill-store__detail-label">${t("skillStore.version")}</span>
+              <span class="skill-store__detail-value">${skill.version || "-"}</span>
+            </div>
+            <div class="skill-store__detail-item">
+              <span class="skill-store__detail-label">${t("skillStore.downloads")}</span>
+              <span class="skill-store__detail-value">${formatDownloads(skill.downloads || 0)}</span>
+            </div>
+            <div class="skill-store__detail-item">
+              <span class="skill-store__detail-label">${t("skillStore.author")}</span>
+              <span class="skill-store__detail-value">${skill.author || "-"}</span>
+            </div>
+            <div class="skill-store__detail-item">
+              <span class="skill-store__detail-label">${t("skillStore.status")}</span>
+              <span class="skill-store__detail-value">
+                ${installed ? t("skillStore.installed") : t("skillStore.notInstalled")}
+              </span>
+            </div>
+          </div>
+
+          ${state.detailLoading
+            ? html`<div class="skill-store__detail-loading">${t("chat.loading")}</div>`
+            : nothing}
+
+          ${state.detailError
+            ? html`<div class="skill-store__detail-error">${state.detailError}</div>`
+            : nothing}
+
+          ${tags.length > 0
+            ? html`
+                <div class="skill-store__detail-section">
+                  <div class="skill-store__detail-section-title">${t("skillStore.tags")}</div>
+                  <div class="skill-store__tag-list">
+                    ${tags.map((tag) => html`<span class="skill-store__tag">${tag}</span>`)}
+                  </div>
+                </div>
+              `
+            : nothing}
+
+          ${detail?.readme
+            ? html`
+                <div class="skill-store__detail-section">
+                  <div class="skill-store__detail-section-title">${t("skillStore.details")}</div>
+                  <div class="skill-store__detail-readme">${detail.readme}</div>
+                </div>
+              `
+            : nothing}
+        </div>
+
+        <div class="skill-store__modal-actions">
+          <button
+            class="skill-store__btn skill-store__btn--ghost"
+            type="button"
+            @click=${() => callbacks.onCopySlug(skill.slug)}
+          >${t("skillStore.copySlug")}</button>
+          ${installed
+            ? html`
+                <button
+                  class="skill-store__btn skill-store__btn--installed"
+                  type="button"
+                  ?disabled=${installing}
+                  @click=${() => callbacks.onUninstall(skill.slug)}
+                >${t("skillStore.uninstall")}</button>
+              `
+            : html`
+                <button
+                  class="skill-store__btn skill-store__btn--install"
+                  type="button"
+                  ?disabled=${installing}
+                  @click=${() => callbacks.onInstall(skill.slug)}
+                >${installing ? t("skillStore.installing") : t("skillStore.install")}</button>
+              `}
+        </div>
+      </section>
+    </div>
+  `;
+}
+
 export function renderSkillStoreView(
   state: SkillStoreState,
   callbacks: SkillStoreCallbacks,
 ) {
   const sorted = sortSkills(state.skills, state.installedSlugs);
+
   return html`
     ${state.error
       ? html`<div class="skill-store__error">${state.error}</div>`
@@ -133,6 +280,8 @@ export function renderSkillStoreView(
           skill,
           state.installedSlugs.has(skill.slug),
           state.installingSlugs.has(skill.slug),
+          state.detailSlug === skill.slug,
+          () => callbacks.onOpenDetail(skill.slug),
           () => callbacks.onInstall(skill.slug),
           () => callbacks.onUninstall(skill.slug),
         ),
@@ -146,5 +295,7 @@ export function renderSkillStoreView(
     ${state.toastMessage
       ? html`<div class="skill-store__toast">${state.toastMessage}</div>`
       : nothing}
+
+    ${renderDetailModal(state, callbacks)}
   `;
 }
