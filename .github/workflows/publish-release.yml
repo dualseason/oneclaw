@@ -9,7 +9,8 @@ on:
     types: [published]
 
 env:
-  CDN_DOMAIN: oneclaw.cn
+  CDN_DOMAIN: ${{ vars.CDN_DOMAIN }}
+  OSS_BUCKET: ${{ vars.OSS_BUCKET }}
 
 jobs:
   publish:
@@ -36,7 +37,7 @@ jobs:
           ALIYUN_ACCESS_KEY_SECRET: ${{ secrets.ALIYUN_ACCESS_KEY_SECRET }}
         run: |
           ossutil config -e oss-cn-beijing.aliyuncs.com -i "$ALIYUN_ACCESS_KEY_ID" -k "$ALIYUN_ACCESS_KEY_SECRET"
-          ossutil cp -r out/release/ oss://oneclaw/releases/ --force --include "*.yml"
+          ossutil cp -r out/release/ "oss://${{ env.OSS_BUCKET }}/releases/" --force --include "*.yml"
           echo "latest yml 上传完成"
 
       # 刷新 CDN 缓存

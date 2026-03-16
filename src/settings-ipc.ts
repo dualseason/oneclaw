@@ -31,7 +31,6 @@ import {
   readUserConfig,
   writeUserConfig,
 } from "./provider-config";
-import { getLatestShareCopyPayload } from "./share-copy";
 import { readSkillStoreRegistry, writeSkillStoreRegistry } from "./skill-store";
 import {
   readChannelAllowFromStoreEntries as readChannelAllowFromStoreEntriesFromFs,
@@ -212,20 +211,6 @@ export function registerSettingsIpc(opts: SettingsIpcOptions = {}): void {
   });
 
   // ── 读取最新分享文案（服务端维护中英文版本） ──
-  ipcMain.handle("settings:get-share-copy", async () => {
-    try {
-      return {
-        success: true,
-        data: await getLatestShareCopyPayload(),
-      };
-    } catch (err: any) {
-      return {
-        success: false,
-        message: err.message || String(err),
-      };
-    }
-  });
-
   // ── 保存 provider 配置 ──
   ipcMain.handle("settings:save-provider", async (_event, params) => {
     const { provider, apiKey, modelID, baseURL, api, subPlatform, supportImage, customPreset } = params;

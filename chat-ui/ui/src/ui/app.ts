@@ -45,7 +45,6 @@ import {
 import {
   handleAbortChat as handleAbortChatInternal,
   handleSendChat as handleSendChatInternal,
-  isSharePromptCountableInput,
   removeQueuedMessage as removeQueuedMessageInternal,
 } from "./app-chat.ts";
 import { DEFAULT_CRON_FORM, DEFAULT_LOG_LEVEL_FILTERS } from "./app-defaults.ts";
@@ -1115,24 +1114,7 @@ export class OpenClawApp extends LitElement {
 
   // 从主进程拉取最新分享文案（主进程负责远端拉取与本地兜底）。
   private async fetchShareCopyPayload(): Promise<ShareCopyPayload | null> {
-    const bridge = (window as unknown as {
-      oneclaw?: { settingsGetShareCopy?: () => Promise<unknown> };
-    }).oneclaw;
-    if (!bridge?.settingsGetShareCopy) {
-      return null;
-    }
-    try {
-      const result = await bridge.settingsGetShareCopy() as {
-        success?: unknown;
-        data?: unknown;
-      };
-      if (!result || result.success !== true) {
-        return null;
-      }
-      return this.normalizeShareCopyPayload(result.data);
-    } catch {
-      return null;
-    }
+    return null;
   }
 
   // 按当前客户端语言选择展示文案。
@@ -1191,15 +1173,11 @@ export class OpenClawApp extends LitElement {
     messageOverride?: string,
     opts?: Parameters<typeof handleSendChatInternal>[2],
   ) {
-    const inputText = String(messageOverride ?? this.chatMessage ?? "").trim();
-    const accepted = await handleSendChatInternal(
+    await handleSendChatInternal(
       this as unknown as Parameters<typeof handleSendChatInternal>[0],
       messageOverride,
       opts,
     );
-    if (accepted && isSharePromptCountableInput(inputText)) {
-      this.recordSharePromptInput();
-    }
   }
 
   dismissSharePrompt() {

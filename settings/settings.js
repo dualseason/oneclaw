@@ -3704,12 +3704,9 @@
       });
     }
     els.btnToggleChSecret.addEventListener("click", togglePasswordVisibility);
-    els.chDocsLink.addEventListener("click", function (e) {
-      e.preventDefault();
-      if (window.oneclaw && window.oneclaw.openExternal) {
-        window.oneclaw.openExternal("https://oneclaw.cn/docs/tutorials/feishu-bot.html");
-      }
-    });
+    if (els.chDocsLink) {
+      els.chDocsLink.style.display = "none";
+    }
     els.chConsoleLink.addEventListener("click", function (e) {
       e.preventDefault();
       if (window.oneclaw && window.oneclaw.openExternal) {

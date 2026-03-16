@@ -22,7 +22,7 @@ The main process spawns a gateway subprocess, waits for its health check, then o
 | Language | TypeScript → CommonJS (no ESM) |
 | Chat UI | Lit 3 + Vite (file:// loaded SPA) |
 | Packager | electron-builder 26.7.0 |
-| Updater | electron-updater (generic provider, CDN at `oneclaw.cn`) |
+| Updater | Disabled in this fork |
 | Targets | macOS DMG + ZIP (arm64/x64), Windows NSIS (x64/arm64) |
 | Version scheme | Calendar-based: `2026.2.26` (auto-fetched from openclaw npm at build time) |
 
@@ -47,7 +47,7 @@ oneclaw/
 │   ├── oneclaw-config.ts   # OneClaw ownership config (deviceId, setupCompletedAt, migration)
 │   ├── settings-ipc.ts     # Settings CRUD, backup/restore, Kimi, CLI, advanced
 │   ├── config-backup.ts    # Rolling backups + last-known-good snapshot + restore
-│   ├── share-copy.ts       # Remote share copy content (CDN fetch + local fallback)
+│   ├── share-copy.ts       # Removed in this fork
 │   ├── kimi-config.ts      # Kimi robot plugin + Kimi Search configuration
 │   ├── cli-integration.ts  # CLI wrapper generation, PATH injection (POSIX + Windows)
 │   ├── launch-at-login.ts  # macOS/Windows launch at login toggle
@@ -77,7 +77,7 @@ oneclaw/
 │   └── clean.sh
 ├── assets/                 # Icons: .icns, .ico, .png, tray templates
 ├── docs/                   # Plans and documentation
-├── .github/workflows/      # CI: build-release.yml + publish-release.yml + publish-share-copy.yml
+├── .github/workflows/      # CI: build-release.yml + publish-release.yml
 ├── electron-builder.yml    # Build config (DMG + ZIP for mac, NSIS for win)
 ├── tsconfig.json           # target ES2022, module CommonJS
 └── .env                    # Signing keys + analytics config (gitignored)
@@ -202,13 +202,9 @@ Non-destructive config safety net:
 - **Recovery flow**: On startup, if config is invalid JSON or gateway fails to start, the main process offers "Restore Last Known Good" / "Open Settings" / "Dismiss"
 - **Factory reset**: Delete config entirely and relaunch into Setup wizard (preserves chat history)
 
-### Share Copy (`share-copy.ts`)
+### Share Copy
 
-Remote marketing content distribution for the "Share OneClaw" feature in Settings:
-
-- Fetches from CDN (`oneclaw.cn/config/share-copy-content.json`) with 5-minute cache
-- Falls back to bundled `settings/share-copy-content.json`, then hardcoded defaults
-- Bilingual (zh/en) with automatic field normalization
+Removed in this fork.
 
 ### Kimi Plugin & Search (`kimi-config.ts`)
 
@@ -300,7 +296,6 @@ Electron 40 defaults to sandbox mode. 42 IPC methods + 4 event listeners are exp
 **Settings — Kimi:** `settingsGetKimiConfig`, `settingsSaveKimiConfig`, `settingsGetKimiSearchConfig`, `settingsSaveKimiSearchConfig`
 **Settings — Advanced/CLI:** `settingsGetAdvanced`, `settingsSaveAdvanced`, `settingsGetCliStatus`, `settingsInstallCli`, `settingsUninstallCli`
 **Settings — Backup:** `settingsListConfigBackups`, `settingsRestoreConfigBackup`, `settingsRestoreLastKnownGood`, `settingsResetConfigAndRelaunch`
-**Settings — Share:** `settingsGetShareCopy`
 **Event listeners:** `onSettingsNavigate`, `onNavigate`, `onUpdateState`, `onFeishuPairingState`
 **Chat UI:** `openSettings`, `openWebUI`, `getGatewayPort`
 **Utility:** `openExternal`
@@ -396,7 +391,7 @@ For comprehensive design guidelines, please refer to:
 │     ├── setup-manager.ts + setup-ipc.ts (wizard + CLI)       │
 │     │     └── setup-completion.ts (completion detection)     │
 │     ├── settings-ipc.ts + settings/ (embedded settings)      │
-│     ├── share-copy.ts (CDN content + fallback)               │
+│     ├── share copy removed                                   │
 │     ├── kimi-config.ts (Kimi plugin + Kimi Search)           │
 │     ├── cli-integration.ts (CLI wrapper + PATH injection)    │
 │     ├── launch-at-login.ts (system startup toggle)           │
