@@ -98,6 +98,7 @@ const dict: Record<Locale, Record<string, string>> = {
     "skillStore.copySuccess": "slug 已复制",
     "skillStore.copyFailed": "复制失败",
     "skillStore.close": "关闭",
+    "skillStore.back": "返回",
 
     "settings.title": "设置",
     "settings.subtitle": "管理外观显示与聊天展示偏好",
@@ -239,6 +240,7 @@ const dict: Record<Locale, Record<string, string>> = {
     "skillStore.copySuccess": "Slug copied.",
     "skillStore.copyFailed": "Copy failed.",
     "skillStore.close": "Close",
+    "skillStore.back": "Back",
 
     "settings.title": "Settings",
     "settings.subtitle": "Manage appearance and chat display preferences",
