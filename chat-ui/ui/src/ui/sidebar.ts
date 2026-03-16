@@ -29,7 +29,6 @@ export type SidebarProps = {
   onOpenSettings: () => void;
   onOpenSkillStore: () => void;
   onOpenWebUI: () => void;
-  onOpenDocs: () => void;
   onApplyUpdate: () => void;
 };
 
@@ -218,16 +217,6 @@ export function renderSidebar(props: SidebarProps) {
         >
           <span class="oneclaw-sidebar__icon">${icons.puzzle}</span>
           <span class="oneclaw-sidebar__label">${t("sidebar.skillStore")}</span>
-        </button>
-
-        <button
-          class="oneclaw-sidebar__item"
-          type="button"
-          @click=${props.onOpenDocs}
-          title=${t("sidebar.docs")}
-        >
-          <span class="oneclaw-sidebar__icon">${icons.book}</span>
-          <span class="oneclaw-sidebar__label">${t("sidebar.docs")}</span>
         </button>
 
         <button

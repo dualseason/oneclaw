@@ -863,13 +863,6 @@ export function renderApp(state: AppViewState) {
             ),
             onOpenSkillStore: () => openSkillsView(state),
             onOpenWebUI: () => void handleOpenWebUI(state),
-            onOpenDocs: () => {
-              if (window.oneclaw?.openExternal) {
-                window.oneclaw.openExternal("https://oneclaw.cn/docs");
-              } else {
-                window.open("https://oneclaw.cn/docs", "_blank");
-              }
-            },
             onApplyUpdate: () => void handleApplyUpdate(state),
           })}
 
