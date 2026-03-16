@@ -16,7 +16,7 @@ import * as log from "./logger";
 import { readOneclawConfig, writeOneclawConfig } from "./oneclaw-config";
 
 const DEFAULT_REGISTRY = "https://skillhub.tencent.com";
-const LEGACY_DEFAULT_REGISTRIES = new Set([
+const DEPRECATED_REGISTRIES = new Set([
   "https://clawhub.ai",
   "https://www.clawhub.ai",
 ]);
@@ -80,12 +80,21 @@ function writeLegacySkillStoreConfig(data: Record<string, any>): void {
 export function readSkillStoreRegistry(): string {
   const oneclawConfig = readOneclawConfig();
   if (oneclawConfig?.skillStore?.registryUrl) {
-    return normalizeRegistryUrl(oneclawConfig.skillStore.registryUrl);
+    const migrated = migrateDeprecatedRegistryUrl(oneclawConfig.skillStore.registryUrl);
+    if (migrated !== oneclawConfig.skillStore.registryUrl) {
+      writeSkillStoreRegistry(migrated);
+    }
+    return migrated;
   }
   const legacy = readLegacySkillStoreConfig();
-  return typeof legacy?.registryUrl === "string"
-    ? normalizeRegistryUrl(legacy.registryUrl)
-    : "";
+  if (typeof legacy?.registryUrl === "string") {
+    const migrated = migrateDeprecatedRegistryUrl(legacy.registryUrl);
+    if (migrated !== legacy.registryUrl) {
+      writeSkillStoreRegistry(migrated);
+    }
+    return migrated;
+  }
+  return "";
 }
 
 // 写入 registry URL（写到 oneclaw.config.json + legacy 文件双写）
@@ -124,13 +133,18 @@ function registryUrl(): string {
 
 function normalizeRegistryUrl(url: string): string {
   const trimmed = String(url ?? "").trim().replace(/\/+$/, "");
-  if (!trimmed) {
+  return trimmed;
+}
+
+function migrateDeprecatedRegistryUrl(url: string): string {
+  const normalized = normalizeRegistryUrl(url);
+  if (!normalized) {
     return "";
   }
-  if (LEGACY_DEFAULT_REGISTRIES.has(trimmed)) {
+  if (DEPRECATED_REGISTRIES.has(normalized)) {
     return DEFAULT_REGISTRY;
   }
-  return trimmed;
+  return normalized;
 }
 
 // ── HTTP 请求封装 ──
