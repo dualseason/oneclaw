@@ -17,11 +17,38 @@
   done_${ROOT_KEY}:
 !macroend
 
+!macro PurgeLegacyShortcuts
+  Delete "$DESKTOP\OneClaw.lnk"
+  Delete "$DESKTOP\虾虾.lnk"
+  Delete "$SMPROGRAMS\OneClaw.lnk"
+  Delete "$SMPROGRAMS\虾虾.lnk"
+  RMDir /r "$SMPROGRAMS\OneClaw"
+  RMDir /r "$SMPROGRAMS\虾虾"
+!macroend
+
+!macro ForceCleanupPreviousInstall ROOT_KEY
+  ReadRegStr $1 ${ROOT_KEY} "${INSTALL_REGISTRY_KEY}" "InstallLocation"
+  StrCmp $1 "" cleanup_done_${ROOT_KEY}
+  DetailPrint "Removing previous install at $1"
+  nsExec::ExecToLog `"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -Command "if (Test-Path -LiteralPath '$1') { Remove-Item -LiteralPath '$1' -Recurse -Force -ErrorAction SilentlyContinue }"`
+  RMDir /r "$1"
+  DeleteRegKey ${ROOT_KEY} "${UNINSTALL_REGISTRY_KEY}"
+  !ifdef UNINSTALL_REGISTRY_KEY_2
+    DeleteRegKey ${ROOT_KEY} "${UNINSTALL_REGISTRY_KEY_2}"
+  !endif
+  DeleteRegKey ${ROOT_KEY} "${INSTALL_REGISTRY_KEY}"
+  !insertmacro PurgeLegacyShortcuts
+  cleanup_done_${ROOT_KEY}:
+!macroend
+
 !macro customInit
   ; 升级安装前尽量把旧版主进程、Helper 和残留 runtime/node 进程全部清掉
   !insertmacro KillOneClawNamedProcesses
   !insertmacro KillInstallDirProcesses HKCU
   !insertmacro KillInstallDirProcesses HKLM
+  ; 不依赖旧卸载器，直接清理旧安装目录与注册表，避免被“应用无法关闭”弹窗卡死
+  !insertmacro ForceCleanupPreviousInstall HKCU
+  !insertmacro ForceCleanupPreviousInstall HKLM
   Sleep 1200
 !macroend
 
