@@ -37,6 +37,7 @@ import {
 declare global {
   interface Window {
     oneclaw?: {
+      generateImage?: (params: { prompt: string; size?: string; quality?: string }) => Promise<any>;
       openSettings?: () => void;
       openWebUI?: () => void;
       openExternal?: (url: string) => unknown;
@@ -481,6 +482,43 @@ async function uninstallLocalSkill(state: AppViewState, slug: string) {
   state.requestUpdate();
 }
 
+function basenameFromPathish(value: unknown): string {
+  const raw = typeof value === "string" ? value.trim() : "";
+  if (!raw) return "";
+  const normalized = raw.replace(/\\/g, "/").replace(/\/+$/g, "");
+  const parts = normalized.split("/").filter(Boolean);
+  return parts.length > 0 ? parts[parts.length - 1].trim() : "";
+}
+
+function resolveLocalSkillUninstallTarget(skill: SkillStatusEntry): string {
+  const entry = skill as Record<string, unknown>;
+
+  const installId =
+    Array.isArray(entry.install) &&
+    entry.install.length > 0 &&
+    entry.install[0] &&
+    typeof entry.install[0] === "object"
+      ? String((entry.install[0] as Record<string, unknown>).id ?? "").trim()
+      : "";
+  if (installId) return installId;
+
+  const baseDir = basenameFromPathish(entry.baseDir);
+  if (baseDir) return baseDir;
+
+  const filePath = basenameFromPathish(entry.filePath);
+  if (filePath && filePath.toLowerCase() !== "skill.md") {
+    return filePath;
+  }
+
+  const skillKey = typeof entry.skillKey === "string" ? entry.skillKey.trim() : "";
+  if (skillKey) return skillKey;
+
+  const id = typeof entry.id === "string" ? entry.id.trim() : "";
+  if (id) return id;
+
+  return typeof entry.name === "string" ? entry.name.trim() : "";
+}
+
 // ── 已安装技能视图（本地化重写） ──
 
 // 分组定义：id → i18n key
@@ -607,7 +645,8 @@ function renderInstalledSkillsView(state: AppViewState) {
                           class="skill-store__btn skill-store__btn--installed"
                           type="button"
                           ?disabled=${isBusy}
-                          @click=${() => void uninstallLocalSkill(state, skill.name ?? key)}
+                          @click=${() =>
+                            void uninstallLocalSkill(state, resolveLocalSkillUninstallTarget(skill))}
                         >${t("skillStore.uninstall")}</button>`
                       : nothing}
                   </div>
@@ -1147,6 +1186,8 @@ export function renderApp(state: AppViewState) {
                   showThinking,
                   loading: state.chatLoading,
                   sending: state.chatSending,
+                  generatingImage: state.chatGeneratingImage,
+                  generatingImagePrompt: state.chatGeneratingImagePrompt,
                   compactionStatus: state.compactionStatus,
                   assistantAvatarUrl: chatAvatarUrl,
                   messages: state.chatMessages,

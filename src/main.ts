@@ -42,8 +42,12 @@ import { readUserConfig, writeUserConfig } from "./provider-config";
 import { resolveKimiSearchApiKey } from "./kimi-config";
 import { reconcileCliOnAppLaunch } from "./cli-integration";
 import { detectOwnership, migrateFromLegacy, markSetupComplete } from "./oneclaw-config";
+import { generateImageWithConfiguredProvider } from "./image-generation";
+import { migrateEmbeddedModelRoutesToSidecar } from "./model-routes";
 import * as log from "./logger";
 import * as analytics from "./analytics";
+
+const ONECLAW_IMAGE_GENERATION_PLUGIN_ID = "oneclaw-image-generation";
 
 function formatConsoleLevel(level: number): string {
   const map = ["LOG", "WARNING", "ERROR", "DEBUG", "INFO", "??"];
@@ -309,6 +313,33 @@ function migrateDisableGatewayUpdateCheck(): void {
 }
 
 // 从配置同步 search API key 到 gateway 环境变量
+function migrateEnableImageGenerationPlugin(): void {
+  try {
+    const config = readUserConfig();
+    config.plugins ??= {};
+    config.plugins.entries ??= {};
+
+    const existing =
+      typeof config.plugins.entries[ONECLAW_IMAGE_GENERATION_PLUGIN_ID] === "object" &&
+      config.plugins.entries[ONECLAW_IMAGE_GENERATION_PLUGIN_ID] !== null
+        ? config.plugins.entries[ONECLAW_IMAGE_GENERATION_PLUGIN_ID]
+        : {};
+
+    if (Object.prototype.hasOwnProperty.call(existing, "enabled")) {
+      return;
+    }
+
+    config.plugins.entries[ONECLAW_IMAGE_GENERATION_PLUGIN_ID] = {
+      ...existing,
+      enabled: true,
+    };
+    writeUserConfig(config);
+      log.info("[migrate] enabled bundled wanboshan image generation plugin by default");
+  } catch {
+    // migration failures should not block startup
+  }
+}
+
 function syncKimiSearchEnv(): void {
   try {
     const config = readUserConfig();
@@ -366,6 +397,17 @@ async function ensureGatewayRunning(source: string): Promise<boolean> {
     if (ensureGatewayRunningTask === task) {
       ensureGatewayRunningTask = null;
     }
+  }
+}
+
+function migrateEmbeddedModelRoutesCompat(): void {
+  try {
+    const config = readUserConfig();
+    if (!migrateEmbeddedModelRoutesToSidecar(config)) return;
+    writeUserConfig(config);
+    log.info("[migrate] removed unsupported top-level oneclaw key from openclaw.json");
+  } catch {
+    // migration failures should not block startup
   }
 }
 
@@ -458,6 +500,15 @@ ipcMain.on("app:refresh-pairing-state", () => pairingMonitor?.triggerNow());
 ipcMain.handle("app:get-feishu-pairing-state", () => pairingMonitor?.getState().channels.feishu);
 ipcMain.on("app:refresh-feishu-pairing-state", () => pairingMonitor?.triggerNow());
 ipcMain.handle("app:open-external", (_e, url: string) => shell.openExternal(url));
+ipcMain.handle(
+  "app:generate-image",
+  async (_e, params?: { prompt?: string; size?: string; quality?: string }) =>
+    generateImageWithConfiguredProvider({
+      prompt: params?.prompt ?? "",
+      size: params?.size,
+      quality: params?.quality,
+    }),
+);
 
 // Chat UI 侧边栏 IPC
 ipcMain.on("app:open-settings", () => {
@@ -556,6 +607,7 @@ function syncAppFocusState(trigger: string): void {
 
 app.whenReady().then(async () => {
   log.info("app ready");
+  migrateEmbeddedModelRoutesCompat();
 
   // 所有窗口的 show/hide/closed 事件统一驱动 Dock 可见性
   app.on("browser-window-created", (_e, win) => {
@@ -676,6 +728,7 @@ app.whenReady().then(async () => {
       // 状态 1：正常启动
       migrateSessionMemoryHook();
       migrateDisableGatewayUpdateCheck();
+      migrateEnableImageGenerationPlugin();
       void reconcileCliOnAppLaunch().catch((err) => {
         log.error(`[migrate] CLI launch reconciliation failed: ${err instanceof Error ? err.message : String(err)}`);
       });
@@ -688,6 +741,7 @@ app.whenReady().then(async () => {
       migrateFromLegacy();
       migrateSessionMemoryHook();
       migrateDisableGatewayUpdateCheck();
+      migrateEnableImageGenerationPlugin();
       void reconcileCliOnAppLaunch().catch((err) => {
         log.error(`[migrate] CLI launch reconciliation failed: ${err instanceof Error ? err.message : String(err)}`);
       });

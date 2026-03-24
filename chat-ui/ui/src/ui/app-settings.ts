@@ -44,6 +44,7 @@ type SettingsHost = {
   tab: Tab;
   connected: boolean;
   chatHasAutoScrolled: boolean;
+  chatForceScrollOnNextLoad: boolean;
   logsAtBottom: boolean;
   eventLog: unknown[];
   eventLogBuffer: unknown[];
@@ -152,6 +153,7 @@ export function setTab(host: SettingsHost, next: Tab) {
   }
   if (next === "chat") {
     host.chatHasAutoScrolled = false;
+    host.chatForceScrollOnNextLoad = true;
   }
   if (next === "logs") {
     startLogsPolling(host as unknown as Parameters<typeof startLogsPolling>[0]);
@@ -232,7 +234,7 @@ export async function refreshActiveTab(host: SettingsHost) {
     await refreshChat(host as unknown as Parameters<typeof refreshChat>[0]);
     scheduleChatScroll(
       host as unknown as Parameters<typeof scheduleChatScroll>[0],
-      !host.chatHasAutoScrolled,
+      true,
     );
   }
   if (host.tab === "config") {
@@ -351,6 +353,7 @@ export function setTabFromRoute(host: SettingsHost, next: Tab) {
   }
   if (next === "chat") {
     host.chatHasAutoScrolled = false;
+    host.chatForceScrollOnNextLoad = true;
   }
   if (next === "logs") {
     startLogsPolling(host as unknown as Parameters<typeof startLogsPolling>[0]);

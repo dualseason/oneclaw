@@ -72,9 +72,6 @@ contextBridge.exposeInMainWorld("oneclaw", {
   settingsGetKimiConfig: () => ipcRenderer.invoke("settings:get-kimi-config"),
   settingsSaveKimiConfig: (params: Record<string, unknown>) =>
     ipcRenderer.invoke("settings:save-kimi-config", params),
-  settingsGetKimiSearchConfig: () => ipcRenderer.invoke("settings:get-kimi-search-config"),
-  settingsSaveKimiSearchConfig: (params: Record<string, unknown>) =>
-    ipcRenderer.invoke("settings:save-kimi-search-config", params),
   settingsGetAboutInfo: () => ipcRenderer.invoke("settings:get-about-info"),
   settingsGetAdvanced: () => ipcRenderer.invoke("settings:get-advanced"),
   settingsSaveAdvanced: (params: Record<string, unknown>) =>
@@ -108,6 +105,8 @@ contextBridge.exposeInMainWorld("oneclaw", {
 
   // 打开外部链接（走 IPC 到主进程，sandbox 下 shell 不可用）
   openExternal: (url: string) => ipcRenderer.invoke("app:open-external", url),
+  generateImage: (params: { prompt: string; size?: string; quality?: string }) =>
+    ipcRenderer.invoke("app:generate-image", params),
 
   // Chat UI 侧边栏操作
   openSettings: () => ipcRenderer.send("app:open-settings"),

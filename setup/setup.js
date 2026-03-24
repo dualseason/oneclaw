@@ -12,7 +12,7 @@
       models: ["kimi-k2.5", "kimi-k2-0905-preview"],
       hasSubPlatform: true,
     },
-    wanboshan: {
+    wbsmodels: {
       placeholder: "sk-...",
       platformUrl: "https://onekey.dualseason.com",
       models: ["gpt-5.4", "claude-opus-4-6", "claude-sonnet-4-6"],
@@ -22,6 +22,10 @@
       models: [],
     },
   };
+  PROVIDERS.wbsmodels.formMode = "direct";
+  PROVIDERS.wbsmodels.defaultBaseUrl = "https://onekey.dualseason.com/v1";
+  PROVIDERS.wbsmodels.defaultApiType = "openai-responses";
+  PROVIDERS.wbsmodels.defaultSupportImage = true;
 
   // Moonshot 子平台各自的 URL
   const SUB_PLATFORM_URLS = {
@@ -377,7 +381,7 @@
 
   // ---- 状态 ----
   let currentStep = 1;
-  let currentProvider = "wanboshan";
+  let currentProvider = "wbsmodels";
   let verifying = false;
   let starting = false;
   let currentLang = "en";
@@ -656,6 +660,8 @@
     if (isCustom) {
       els.customPreset.value = "__placeholder__";
       applyCustomPreset("__placeholder__");
+    } else if (isDirectConfigProvider(provider)) {
+      applyDirectProviderForm(provider);
     } else {
       toggleEl(els.baseURLGroup, false);
       toggleEl(els.modelInputGroup, false);
@@ -669,6 +675,29 @@
   }
 
   // 自定义 Model ID 哨兵值（下拉最后一项）
+  function isDirectConfigProvider(provider) {
+    return PROVIDERS[provider] && PROVIDERS[provider].formMode === "direct";
+  }
+
+  function selectApiType(value) {
+    var target = document.querySelector('input[name="apiType"][value="' + value + '"]');
+    if (target) target.checked = true;
+  }
+
+  function applyDirectProviderForm(provider) {
+    var config = PROVIDERS[provider];
+    toggleEl(els.baseURLGroup, true);
+    toggleEl(els.modelInputGroup, false);
+    toggleEl(els.apiTypeGroup, true);
+    toggleEl(els.imageSupportGroup, false);
+    toggleEl(els.customModelInputGroup, false);
+    toggleEl(els.modelSelectGroup, true);
+    els.btnVerify.disabled = false;
+    $("#baseURL").value = config.defaultBaseUrl || "";
+    selectApiType(config.defaultApiType || "openai-completions");
+    updateModels();
+  }
+
   const CUSTOM_MODEL_SENTINEL = "__custom__";
 
   // 根据预设切换 Custom tab 的字段显隐
@@ -890,6 +919,25 @@
         params.apiType = document.querySelector('input[name="apiType"]:checked').value;
         params.supportImage = els.imageSupport.checked;
       }
+    } else if (isDirectConfigProvider(currentProvider)) {
+      const baseURL = ($("#baseURL").value || "").trim();
+      if (!baseURL) {
+        showError(t("error.noBaseUrl"));
+        return null;
+      }
+      if (els.modelSelect.value === CUSTOM_MODEL_SENTINEL) {
+        const customModel = (els.customModelInput.value || "").trim();
+        if (!customModel) {
+          showError(t("error.noModelId"));
+          return null;
+        }
+        params.modelID = customModel;
+      } else {
+        params.modelID = els.modelSelect.value;
+      }
+      params.baseURL = baseURL;
+      params.apiType = document.querySelector('input[name="apiType"]:checked').value;
+      params.supportImage = PROVIDERS[currentProvider].defaultSupportImage !== false;
     } else {
       // 非 custom provider：支持自定义模型输入
       if (els.modelSelect.value === CUSTOM_MODEL_SENTINEL) {
@@ -1136,7 +1184,7 @@
     applyI18n();
     syncCustomPresetOptions();
     bindEvents();
-    switchProvider("wanboshan");
+    switchProvider("wbsmodels");
     checkExistingInstallation();
     loadLaunchAtLoginState();
   }

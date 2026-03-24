@@ -1,5 +1,5 @@
 // ============================================
-// OneClaw Settings — 双栏设置交互逻辑
+// OneClaw Settings 双栏设置交互逻辑
 // ============================================
 
 (function () {
@@ -22,16 +22,38 @@
       models: ["kimi-k2.5", "kimi-k2-0905-preview"],
       hasSubPlatform: true,
     },
-    wanboshan: {
+    wbsmodels: {
       placeholder: "sk-...",
       platformUrl: "https://onekey.dualseason.com",
-      models: ["gpt-5.4", "claude-opus-4-6", "claude-sonnet-4-6"],
+      models: [
+        "gpt-5.4",
+        "gpt-5.3",
+        "gpt-5.3-codex",
+        "gpt-5.2",
+        "claude-code-4.5",
+        "claude-haiku-4.6",
+        "claude-sonnet-4.6",
+        "claude-opus-4.6",
+      ],
+    },
+    clawimage: {
+      placeholder: "sk-...",
+      platformUrl: "https://claw.dualseason.com",
+      models: ["gemini-3.0-pro-image-2k"],
     },
     custom: {
       placeholder: "",
       models: [],
     },
   };
+  PROVIDERS.wbsmodels.formMode = "direct";
+  PROVIDERS.wbsmodels.defaultBaseUrl = "https://onekey.dualseason.com/v1";
+  PROVIDERS.wbsmodels.defaultApiType = "openai-responses";
+  PROVIDERS.wbsmodels.defaultSupportImage = true;
+  PROVIDERS.clawimage.formMode = "direct";
+  PROVIDERS.clawimage.defaultBaseUrl = "https://claw.dualseason.com/v1";
+  PROVIDERS.clawimage.defaultApiType = "openai-completions";
+  PROVIDERS.clawimage.defaultSupportImage = true;
 
   const SUB_PLATFORM_URLS = {
     "moonshot-cn": "https://platform.moonshot.cn?utm_source=oneclaw",
@@ -176,8 +198,27 @@
   delete CUSTOM_PRESETS["zai-cn"];
   delete CUSTOM_PRESETS["zai-cn-coding"];
 
-  // 已保存的各 provider 配置缓存（供切换时自动回填）
+  // 已保存的provider 配置缓存（供切换时自动回填）
   var savedProviders = {};
+  const MODEL_ROLE_ORDER = ["thinking", "image", "video", "search"];
+  const MODEL_ROLE_PROVIDER_KEYS = {
+    thinking: null,
+    image: "clawimage",
+    video: "oneclaw-video",
+    search: "oneclaw-search",
+  };
+  const MODEL_ROLE_LABELS = {
+    thinking: "Thinking",
+    image: "Image",
+    video: "Video",
+    search: "Search",
+  };
+  const ROLE_PROVIDER_OPTIONS = {
+    thinking: [{ provider: "wbsmodels", label: "万博山思考" }],
+    image: [{ provider: "clawimage", label: "万博山生图" }],
+    video: [{ provider: "clawimage", label: "万博山视频" }],
+    search: [{ provider: "clawimage", label: "万博山搜索" }],
+  };
 
   // ── 国际化 ──
 
@@ -229,6 +270,14 @@
       "provider.save": "Save",
       "provider.saving": "Saving…",
       "provider.currentUsing": "Current: ",
+      "provider.notConfigured": "Not configured",
+      "provider.notConfiguredTitle": "Not configured yet",
+      "provider.notConfiguredDesc": "This role has no model configuration yet. Click to start configuration.",
+      "provider.editConfig": "Edit configuration",
+      "provider.startConfig": "Start configuration",
+      "provider.closeConfig": "Collapse editor",
+      "provider.summaryLabel": "Current configuration",
+      "provider.summaryDesc": "Provider, model, and key are configured.",
       "feishu.title": "Feishu Integration",
       "feishu.desc": "Connect Feishu to chat with AI directly in your group",
       "feishu.enabled": "Enable",
@@ -342,7 +391,6 @@
       "error.verifyFailed": "Verification failed. Please check your API key",
       "error.connection": "Connection error: ",
       "nav.kimi": "KimiClaw",
-      "nav.search": "Search",
       "nav.appearance": "Appearance",
       "nav.backup": "Backup & Restore",
       "kimi.title": "KimiClaw",
@@ -355,18 +403,6 @@
       "kimi.save": "Save",
       "kimi.saving": "Saving…",
       "error.noKimiBotToken": "Please paste the command or enter your Bot Token",
-      "search.title": "Search Configuration",
-      "search.desc": "Configure web search and content fetch tools",
-      "search.enabled": "Enable",
-      "search.apiKeyLabel": "API Key",
-      "search.guideText": "Kimi for Coding API Key enables search",
-      "search.getKey": "Get API Key →",
-      "search.autoKeyHint": "Auto-reusing Kimi Code API Key",
-      "search.save": "Save",
-      "search.saving": "Saving…",
-      "search.advancedToggle": "Advanced",
-      "search.serviceBaseUrlLabel": "Service Base URL",
-      "search.serviceBaseUrlHint": "Leave empty to use the default endpoint. /search and /fetch will be appended automatically",
       "nav.advanced": "Advanced",
       "advanced.title": "Advanced",
       "advanced.desc": "Browser tool and messaging channel settings",
@@ -420,11 +456,11 @@
       "backup.gatewayStateStopped": "Stopped",
       "backup.gatewayStateUnknown": "Unknown",
       "backup.resetTitle": "Reset Configuration",
-      "backup.resetDesc": "Delete openclaw.json and relaunch app to run setup again. Chat history is kept",
+      "backup.resetDesc": "Back up current openclaw.json, clear it to {}, and relaunch app to run setup again. Chat history is kept",
       "backup.resetButton": "Reset Config And Relaunch",
       "backup.resetting": "Resetting…",
-      "backup.confirmReset": "Delete openclaw.json, keep history data, and relaunch app to run setup again?",
-      "backup.resetDone": "Configuration removed. App is relaunching",
+      "backup.confirmReset": "Back up and clear openclaw.json (set to {}), keep history data, then relaunch app to run setup again?",
+      "backup.resetDone": "Configuration backed up and cleared. App is relaunching",
       "backup.lastKnownGoodAt": "Last successful startup snapshot: ",
       "backup.noLastKnownGood": "No last known good snapshot found yet",
       "backup.confirmRestore": "Restore this backup and overwrite current openclaw.json?",
@@ -494,6 +530,14 @@
       "provider.save": "保存",
       "provider.saving": "保存中…",
       "provider.currentUsing": "当前使用: ",
+      "provider.notConfigured": "未配置",
+      "provider.notConfiguredTitle": "还没有配置",
+      "provider.notConfiguredDesc": "当前角色还没有配置模型，点击下方按钮开始配置。",
+      "provider.editConfig": "修改配置",
+      "provider.startConfig": "开始配置",
+      "provider.closeConfig": "收起配置",
+      "provider.summaryLabel": "当前配置",
+      "provider.summaryDesc": "已完成 Provider、模型和密钥配置。",
       "feishu.title": "飞书集成",
       "feishu.desc": "连接飞书 在群聊中直接与 AI 对话",
       "feishu.enabled": "启用状态",
@@ -607,7 +651,6 @@
       "error.verifyFailed": "验证失败 请检查 API 密钥",
       "error.connection": "连接错误：",
       "nav.kimi": "KimiClaw",
-      "nav.search": "搜索配置",
       "nav.appearance": "外观显示",
       "nav.backup": "备份恢复",
       "kimi.title": "KimiClaw",
@@ -620,18 +663,6 @@
       "kimi.save": "保存",
       "kimi.saving": "保存中…",
       "error.noKimiBotToken": "请粘贴命令或输入 Bot Token",
-      "search.title": "搜索配置",
-      "search.desc": "配置网页搜索和内容抓取工具",
-      "search.enabled": "启用状态",
-      "search.apiKeyLabel": "API 密钥",
-      "search.guideText": "Kimi for Coding 的 API Key 可启用搜索功能",
-      "search.getKey": "去控制台获取密钥 →",
-      "search.autoKeyHint": "已自动复用 Kimi Code API Key",
-      "search.save": "保存",
-      "search.saving": "保存中…",
-      "search.advancedToggle": "高级配置",
-      "search.serviceBaseUrlLabel": "服务地址",
-      "search.serviceBaseUrlHint": "留空使用默认地址。系统会自动追加 /search 和 /fetch 路径",
       "nav.advanced": "高级选项",
       "advanced.title": "高级选项",
       "advanced.desc": "浏览器工具与消息频道设置",
@@ -685,11 +716,11 @@
       "backup.gatewayStateStopped": "已停止",
       "backup.gatewayStateUnknown": "未知",
       "backup.resetTitle": "重置配置",
-      "backup.resetDesc": "删除 openclaw.json 并重启应用，重新进入引导流程。历史数据会保留。",
+      "backup.resetDesc": "先备份当前 openclaw.json，再清空为 {} 并重启应用重新进入引导流程。聊天历史会保留。",
       "backup.resetButton": "重置配置并重启",
       "backup.resetting": "重置中…",
-      "backup.confirmReset": "将删除 openclaw.json，保留历史数据，并重启应用重新进入引导流程。确认继续吗？",
-      "backup.resetDone": "配置已重置，应用正在重启…",
+      "backup.confirmReset": "将先备份并清空 openclaw.json（写成 {}），保留历史数据，然后重启应用重新进入引导流程。确认继续吗？",
+      "backup.resetDone": "配置已备份并清空，应用正在重启…",
       "backup.lastKnownGoodAt": "最近成功启动快照时间：",
       "backup.noLastKnownGood": "暂无“最近可用配置”快照",
       "backup.confirmRestore": "确认恢复该备份并覆盖当前 openclaw.json 吗？",
@@ -728,6 +759,15 @@
     chatPlatformPanels: $$(".chat-platform-panel"),
     // Provider tab
     providerTabs: $("#providerTabs"),
+    modelRoleTabs: $("#modelRoleTabs"),
+    providerEditor: $("#providerEditor"),
+    providerOverviewCard: $("#providerOverviewCard"),
+    providerOverviewRole: $("#providerOverviewRole"),
+    providerOverviewTitle: $("#providerOverviewTitle"),
+    providerOverviewMeta: $("#providerOverviewMeta"),
+    providerOverviewBadge: $("#providerOverviewBadge"),
+    btnProviderConfigure: $("#btnProviderConfigure"),
+    btnProviderCancel: $("#btnProviderCancel"),
     platformLink: $("#platformLink"),
     subPlatformGroup: $("#subPlatformGroup"),
     subPlatformOptions: $("#subPlatformOptions"),
@@ -827,21 +867,6 @@
     btnKimiSave: $("#btnKimiSave"),
     btnKimiSaveText: $("#btnKimiSave .btn-text"),
     btnKimiSaveSpinner: $("#btnKimiSave .btn-spinner"),
-    // Search tab
-    searchEnabled: $("#searchEnabled"),
-    searchFields: $("#searchFields"),
-    searchProviderTabs: $("#searchProviderTabs"),
-    searchPlatformLink: $("#searchPlatformLink"),
-    searchGuideText: $("#searchGuideText"),
-    searchApiKey: $("#searchApiKey"),
-    searchApiKeyGroup: $("#searchApiKeyGroup"),
-    searchAutoKeyHint: $("#searchAutoKeyHint"),
-    btnToggleSearchKey: $("#btnToggleSearchKey"),
-    searchServiceBaseUrl: $("#searchServiceBaseUrl"),
-    searchMsgBox: $("#searchMsgBox"),
-    btnSearchSave: $("#btnSearchSave"),
-    btnSearchSaveText: $("#btnSearchSave .btn-text"),
-    btnSearchSaveSpinner: $("#btnSearchSave .btn-spinner"),
     // Advanced tab
     clawHubRegistry: $("#clawHubRegistry"),
     sessionMemoryEnabled: $("#sessionMemoryEnabled"),
@@ -878,7 +903,11 @@
 
   // ── 状态 ──
 
-  let currentProvider = "wanboshan";
+  let currentProvider = "wbsmodels";
+  let currentModelRole = "thinking";
+  let modelRoleConfigs = {};
+  let providerEditing = false;
+  let currentRoleConfigured = false;
   let saving = false;
   let currentChatPlatform = "feishu";
   let chSaving = false;
@@ -894,7 +923,6 @@
   let dingtalkSaving = false;
   let qqSaving = false;
   let kimiSaving = false;
-  let searchSaving = false;
   let advSaving = false;
   let cliOperating = false;
   let cliEnabled = false;
@@ -955,6 +983,19 @@
     document.querySelectorAll("[data-i18n]").forEach((el) => {
       el.textContent = t(el.getAttribute("data-i18n"));
     });
+    if (els.btnProviderCancel) {
+      els.btnProviderCancel.textContent = t("common.cancel");
+    }
+    if (els.providerOverviewTitle) {
+      els.providerOverviewTitle.textContent = t("provider.notConfiguredTitle");
+    }
+    if (els.providerOverviewMeta) {
+      els.providerOverviewMeta.textContent = t("provider.notConfiguredDesc");
+    }
+    if (els.providerOverviewBadge) {
+      els.providerOverviewBadge.textContent = t("provider.notConfigured");
+    }
+    updateProviderConfigureButton();
     if (els.btnChAccessRefresh) {
       els.btnChAccessRefresh.setAttribute("title", t("feishu.refreshPairing"));
       els.btnChAccessRefresh.setAttribute("aria-label", t("feishu.refreshPairing"));
@@ -971,14 +1012,14 @@
 
   // ── Tab 切换 ──
 
-  // 兼容历史 tab 参数别名，确保外部深链都能落到正确面板。
+  // 兼容历史 tab 参数别名，确保外部深链都能落到正确面板
   function normalizeTabName(tabName) {
     var raw = String(tabName || "").trim();
     if (!raw) return "provider";
     return TAB_ALIAS_MAP[raw] || raw;
   }
 
-  // 兼容 feishu / dingtalk / qq / qqbot 这类历史入口，把它们映射到聊天集成子平台。
+  // 兼容 feishu / dingtalk / qq / qqbot 这类历史入口，把它们映射到聊天集成子平台
   function normalizeChatPlatformName(platformName) {
     var raw = String(platformName || "").trim().toLowerCase();
     if (raw === "wecom" || raw === "wechat-work" || raw === "wecom-openclaw-plugin") return "wecom";
@@ -988,7 +1029,148 @@
     return "feishu";
   }
 
-  // 当外部直接传 feishu / dingtalk / qqbot 这类 tab 时，自动选中对应子平台。
+  // 当外部直接传 feishu / dingtalk / qqbot 这类 tab 时，自动选中对应子平台
+  function normalizeModelRoleName(roleName) {
+    var raw = String(roleName || "").trim().toLowerCase();
+    return MODEL_ROLE_ORDER.indexOf(raw) >= 0 ? raw : "thinking";
+  }
+
+  function getModelRoleLabel(roleName) {
+    var role = normalizeModelRoleName(roleName);
+    return MODEL_ROLE_LABELS[role] || MODEL_ROLE_LABELS.thinking;
+  }
+
+  function getRoleProviderOptions(roleName) {
+    var role = normalizeModelRoleName(roleName);
+    return ROLE_PROVIDER_OPTIONS[role] || ROLE_PROVIDER_OPTIONS.thinking;
+  }
+
+  function getAllowedProvidersForRole(roleName) {
+    return getRoleProviderOptions(roleName).map(function (item) { return item.provider; });
+  }
+
+  function isProviderAllowedForRole(provider, roleName) {
+    if (!provider) return false;
+    return getAllowedProvidersForRole(roleName).indexOf(provider) >= 0;
+  }
+
+  function getRoleProviderLabel(provider, roleName) {
+    var matched = getRoleProviderOptions(roleName).find(function (item) { return item.provider === provider; });
+    return matched ? matched.label : "";
+  }
+
+  function renderProviderTabsForRole(roleName) {
+    if (!els.providerTabs) return;
+    var options = getRoleProviderOptions(roleName);
+    var labelsByProvider = {};
+    options.forEach(function (item) {
+      labelsByProvider[item.provider] = item.label;
+    });
+
+    els.providerTabs.querySelectorAll(".provider-tab").forEach(function (tab) {
+      var providerKey = tab.dataset.provider;
+      var visible = !!labelsByProvider[providerKey];
+      toggleEl(tab, visible);
+      if (visible) {
+        tab.textContent = labelsByProvider[providerKey];
+      }
+    });
+  }
+
+  function getDefaultProviderForRole(roleName) {
+    var allowed = getAllowedProvidersForRole(roleName);
+    return allowed.length ? allowed[0] : "wbsmodels";
+  }
+
+  function switchModelRole(roleName) {
+    currentModelRole = normalizeModelRoleName(roleName);
+    renderProviderTabsForRole(currentModelRole);
+    setProviderEditing(false);
+    loadCurrentConfig();
+  }
+
+  function maskSummaryApiKey(value) {
+    var raw = String(value || "").trim();
+    if (!raw) return "";
+    if (raw.length <= 8) return "******";
+    return raw.slice(0, 4) + "..." + raw.slice(-4);
+  }
+
+  function isRoleConfigured(data) {
+    if (!data || typeof data !== "object") return false;
+    var provider = String(data.provider || "").trim();
+    if (!isProviderAllowedForRole(provider, currentModelRole)) return false;
+    if (typeof data.configured === "boolean") return data.configured;
+    return !!(data.provider && data.modelID && data.raw);
+  }
+
+  function updateProviderConfigureButton() {
+    if (!els.btnProviderConfigure) return;
+    if (providerEditing) {
+      els.btnProviderConfigure.textContent = t("provider.closeConfig");
+      return;
+    }
+    els.btnProviderConfigure.textContent = currentRoleConfigured
+      ? t("provider.editConfig")
+      : t("provider.startConfig");
+  }
+
+  function setProviderEditing(editing) {
+    providerEditing = !!editing;
+    if (els.providerEditor) {
+      toggleEl(els.providerEditor, providerEditing);
+    }
+    if (els.btnProviderCancel) {
+      toggleEl(els.btnProviderCancel, providerEditing);
+    }
+    updateProviderConfigureButton();
+  }
+
+  function renderProviderOverview(data) {
+    if (!els.providerOverviewCard) return;
+    var configured = isRoleConfigured(data);
+    currentRoleConfigured = configured;
+
+    if (els.providerOverviewRole) {
+      els.providerOverviewRole.textContent = getModelRoleLabel(currentModelRole);
+    }
+
+    if (!configured) {
+      if (els.providerOverviewTitle) {
+        els.providerOverviewTitle.textContent = t("provider.notConfiguredTitle");
+      }
+      if (els.providerOverviewMeta) {
+        els.providerOverviewMeta.textContent = t("provider.notConfiguredDesc");
+      }
+      if (els.providerOverviewBadge) {
+        els.providerOverviewBadge.textContent = t("provider.notConfigured");
+        els.providerOverviewBadge.classList.add("is-empty");
+      }
+      updateProviderConfigureButton();
+      return;
+    }
+
+    var displayName = getProviderDisplayName(data.provider, data.subPlatform, currentModelRole);
+    if (els.providerOverviewTitle) {
+      els.providerOverviewTitle.textContent = displayName + " / " + (data.modelID || "-");
+    }
+
+    var details = [t("provider.summaryLabel")];
+    if (data.subPlatform) details.push(data.subPlatform);
+    if (data.baseURL) details.push(data.baseURL);
+    if (data.apiKey) details.push(maskSummaryApiKey(data.apiKey));
+    if (els.providerOverviewMeta) {
+      els.providerOverviewMeta.textContent = details.length ? details.join(" · ") : t("provider.summaryDesc");
+    }
+
+    if (els.providerOverviewBadge) {
+      els.providerOverviewBadge.textContent = t("provider.summaryLabel");
+      els.providerOverviewBadge.classList.remove("is-empty");
+    }
+
+    updateProviderConfigureButton();
+  }
+
   function inferChatPlatformFromTab(tabName) {
     var raw = String(tabName || "").trim().toLowerCase();
     if (
@@ -1006,7 +1188,7 @@
     return "";
   }
 
-  // 聊天集成页内部的二级平台切换。
+  // 聊天集成页内部的二级平台切换
   function switchChatPlatform(platformName) {
     var target = normalizeChatPlatformName(platformName);
     currentChatPlatform = target;
@@ -1107,6 +1289,9 @@
   }
 
   function getProviderConfigKey(provider, subPlatform) {
+    if (currentModelRole !== "thinking") {
+      return MODEL_ROLE_PROVIDER_KEYS[currentModelRole] || provider;
+    }
     if (provider === "custom") {
       var presetKey = els.customPreset.value;
       var preset = presetKey ? CUSTOM_PRESETS[presetKey] : null;
@@ -1165,7 +1350,7 @@
     return savedProviders[configKey] || null;
   }
 
-  // 用已保存的配置回填 UI（apiKey、model、custom 字段）
+  // 用已保存的配置回UI（apiKey、model、custom 字段
   function fillSavedProviderFields(provider, subPlatform) {
     var saved = lookupSavedProvider(provider, subPlatform);
     if (!saved) {
@@ -1174,7 +1359,7 @@
     }
     els.apiKeyInput.value = saved.apiKey || "";
 
-    // 回填模型列表和选中项
+    // 回填模型列表和选中
     if (provider !== "custom" && saved.configuredModels && saved.configuredModels.length) {
       var merged = buildMergedModelList(saved.configuredModels, provider, subPlatform);
       if (merged.length) populateModels(merged);
@@ -1187,31 +1372,64 @@
         var apiRadio = document.querySelector('input[name="apiType"][value="' + saved.api + '"]');
         if (apiRadio) apiRadio.checked = true;
       }
+    } else if (isDirectConfigProvider(provider)) {
+      els.baseURLInput.value = saved.baseURL || PROVIDERS[provider].defaultBaseUrl || "";
+      selectApiType(saved.api || PROVIDERS[provider].defaultApiType || "openai-completions");
     }
   }
 
-  function switchProvider(provider, preferredSubPlatform) {
-    currentProvider = provider;
-    const config = PROVIDERS[provider];
+  function isDirectConfigProvider(provider) {
+    return PROVIDERS[provider] && PROVIDERS[provider].formMode === "direct";
+  }
 
-    $$(".provider-tab").forEach((tab) => {
-      tab.classList.toggle("active", tab.dataset.provider === provider);
-    });
+  function selectApiType(value) {
+    var target = document.querySelector('input[name="apiType"][value="' + value + '"]');
+    if (target) target.checked = true;
+  }
+
+  function applyDirectProviderForm(provider) {
+    var config = PROVIDERS[provider];
+    toggleEl(els.baseURLGroup, true);
+    toggleEl(els.modelInputGroup, false);
+    toggleEl(els.apiTypeGroup, true);
+    toggleEl(els.imageSupportGroup, false);
+    toggleEl(els.customModelInputGroup, false);
+    toggleEl(els.modelSelectGroup, true);
+    els.btnSave.disabled = false;
+    els.baseURLInput.value = config.defaultBaseUrl || "";
+    selectApiType(config.defaultApiType || "openai-completions");
+    updateModels();
+  }
+
+  function switchProvider(provider, preferredSubPlatform) {
+    var resolvedProvider = isProviderAllowedForRole(provider, currentModelRole)
+      ? provider
+      : getDefaultProviderForRole(currentModelRole);
+    currentProvider = resolvedProvider;
+    const config = PROVIDERS[resolvedProvider];
+
+    if (els.providerTabs) {
+      els.providerTabs.querySelectorAll(".provider-tab").forEach((tab) => {
+        tab.classList.toggle("active", tab.dataset.provider === resolvedProvider);
+      });
+    }
 
     els.apiKeyInput.placeholder = config.placeholder;
     hideMsg();
 
-    renderSubPlatformOptions(provider, preferredSubPlatform);
+    renderSubPlatformOptions(resolvedProvider, preferredSubPlatform);
     updatePlatformLink();
-    toggleEl(els.subPlatformGroup, hasSubPlatformOptions(provider));
+    toggleEl(els.subPlatformGroup, hasSubPlatformOptions(resolvedProvider));
 
-    const isCustom = provider === "custom";
+    const isCustom = resolvedProvider === "custom";
     toggleEl(els.customPresetGroup, isCustom);
 
     if (isCustom) {
       els.customPreset.value = "__placeholder__";
       els.supportImageCheckbox.checked = true;
       applyCustomPreset("__placeholder__");
+    } else if (isDirectConfigProvider(resolvedProvider)) {
+      applyDirectProviderForm(resolvedProvider);
     } else {
       toggleEl(els.baseURLGroup, false);
       toggleEl(els.modelInputGroup, false);
@@ -1223,13 +1441,13 @@
       updateModels();
     }
 
-    fillSavedProviderFields(provider, getSubPlatform(provider));
+    fillSavedProviderFields(resolvedProvider, getSubPlatform(resolvedProvider));
   }
 
-  // 自定义 Model ID 哨兵值（下拉最后一项）
+  // 自定Model ID 哨兵值（下拉最后一项）
   var CUSTOM_MODEL_SENTINEL = "__custom__";
 
-  // 根据预设切换 Custom tab 的字段显隐
+  // 根据预设切换 Custom tab 的字段显
   function applyCustomPreset(presetKey) {
     var preset = CUSTOM_PRESETS[presetKey];
 
@@ -1245,11 +1463,11 @@
       els.btnSave.disabled = true;
       updatePlatformLink();
     } else if (preset) {
-      // 预设模式：隐藏手动字段
+      // 预设模式：隐藏手动字
       toggleEl(els.apiTypeGroup, false);
       toggleEl(els.imageSupportGroup, false);
       toggleEl(els.modelInputGroup, false);
-      // Ollama 等本地 provider：显示可编辑 Base URL，隐藏 API Key
+      // Ollama 等本provider：显示可编辑 Base URL，隐API Key
       toggleEl(els.baseURLGroup, !!preset.keyOptional);
       toggleEl(els.apiKeyGroup, !preset.keyOptional);
       if (preset.keyOptional) {
@@ -1267,7 +1485,7 @@
       els.btnSave.disabled = false;
       updatePlatformLink();
     } else {
-      // 手动模式：恢复原始 Custom 行为
+      // 手动模式：恢复原Custom 行为
       toggleEl(els.baseURLGroup, true);
       toggleEl(els.apiTypeGroup, true);
       toggleEl(els.imageSupportGroup, true);
@@ -1282,7 +1500,7 @@
     }
   }
 
-  // 填充预设模型列表，末尾追加"自定义模型"选项
+  // 填充预设模型列表，末尾追自定义模选项
   function populatePresetModels(models) {
     populateModels(models);
     var opt = document.createElement("option");
@@ -1293,7 +1511,7 @@
 
   // 模型下拉切换时，判断是否显示自定义输入框
   function handleModelSelectChange() {
-    // custom provider 手动模式（无预设）不走这里
+    // custom provider 手动模式（无预设）不走这
     if (currentProvider === "custom" && !els.customPreset.value) return;
     var isCustomModel = els.modelSelect.value === CUSTOM_MODEL_SENTINEL;
     toggleEl(els.customModelInputGroup, isCustomModel);
@@ -1339,7 +1557,7 @@
     });
   }
 
-  // 在模型下拉中选中指定 model，不存在则追加
+  // 在模型下拉中选中指定 model，不存在则追
   function selectOrAppendModel(modelID) {
     for (var i = 0; i < els.modelSelect.options.length; i++) {
       if (els.modelSelect.options[i].value === modelID) {
@@ -1381,7 +1599,7 @@
     if (saving) return;
 
     var apiKey = els.apiKeyInput.value.trim();
-    // Ollama 等本地 provider 不需要 API Key
+    // Ollama 等本provider 不需API Key
     var activePreset = currentProvider === "custom" ? CUSTOM_PRESETS[els.customPreset.value] : null;
     if (!apiKey && !(activePreset && activePreset.keyOptional)) {
       showMsg(t("error.noKey"), "error");
@@ -1395,7 +1613,7 @@
     hideMsg();
 
     try {
-      // 先验证
+      // 先验
       var verifyResult = await window.oneclaw.settingsVerifyKey(params);
       if (!verifyResult.success) {
         showMsg(verifyResult.message || t("error.verifyFailed"), "error");
@@ -1403,7 +1621,7 @@
         return;
       }
 
-      // 再保存
+      // 再保
       var saveResult = await window.oneclaw.settingsSaveProvider(buildSavePayload(params));
       if (!saveResult.success) {
         showMsg(saveResult.message || "Save failed", "error");
@@ -1413,14 +1631,8 @@
 
       setSaving(false);
       showToast(t("common.saved"));
-
-      // 保存成功后刷新 savedProviders 缓存
-      try {
-        var refreshResult = await window.oneclaw.settingsGetConfig();
-        if (refreshResult.success && refreshResult.data && refreshResult.data.savedProviders) {
-          savedProviders = refreshResult.data.savedProviders;
-        }
-      } catch { }
+      setProviderEditing(false);
+      await loadCurrentConfig();
     } catch (err) {
       showMsg(t("error.connection") + (err.message || "Unknown error"), "error");
       setSaving(false);
@@ -1434,7 +1646,7 @@
       var presetKey = els.customPreset.value;
       if (presetKey === "__placeholder__") return null;
       if (presetKey) {
-        // 自定义输入框可见（含空 models 预设）或选了"自定义模型"时用输入框
+        // 自定义输入框可见（含models 预设）或选了"自定义模时用输入
         if (!els.customModelInputGroup.classList.contains("hidden") || els.modelSelect.value === CUSTOM_MODEL_SENTINEL) {
           var customModel = (els.customModelInput.value || "").trim();
           if (!customModel) { showMsg(t("error.noModelId"), "error"); return null; }
@@ -1459,8 +1671,21 @@
         params.apiType = document.querySelector('input[name="apiType"]:checked').value;
         params.supportImage = els.supportImageCheckbox.checked;
       }
+    } else if (isDirectConfigProvider(currentProvider)) {
+      var directBaseURL = (els.baseURLInput.value || "").trim();
+      if (!directBaseURL) { showMsg(t("error.noBaseUrl"), "error"); return null; }
+      if (els.modelSelect.value === CUSTOM_MODEL_SENTINEL) {
+        var directCustomModel = (els.customModelInput.value || "").trim();
+        if (!directCustomModel) { showMsg(t("error.noModelId"), "error"); return null; }
+        params.modelID = directCustomModel;
+      } else {
+        params.modelID = els.modelSelect.value;
+      }
+      params.baseURL = directBaseURL;
+      params.apiType = document.querySelector('input[name="apiType"]:checked').value;
+      params.supportImage = PROVIDERS[currentProvider].defaultSupportImage !== false;
     } else {
-      // 非 custom provider：支持自定义模型输入
+      // custom provider：支持自定义模型输入
       if (els.modelSelect.value === CUSTOM_MODEL_SENTINEL) {
         var customModel = (els.customModelInput.value || "").trim();
         if (!customModel) { showMsg(t("error.noModelId"), "error"); return null; }
@@ -1480,6 +1705,7 @@
   function buildSavePayload(params) {
     var payload = {
       provider: params.provider,
+      role: currentModelRole,
       apiKey: params.apiKey,
       modelID: params.modelID,
       baseURL: params.baseURL || "",
@@ -1487,7 +1713,7 @@
       subPlatform: params.subPlatform || "",
       customPreset: params.customPreset || "",
     };
-    // Custom 专属：图像支持
+    // Custom 专属：图像支
     if (params.supportImage !== undefined) {
       payload.supportImage = params.supportImage;
     }
@@ -1496,7 +1722,7 @@
 
   // ── Channels ──
 
-  // 频道消息框
+  // 频道消息
   function showChMsg(msg, type) {
     els.chMsgBox.textContent = msg;
     els.chMsgBox.className = "msg-box " + type;
@@ -1512,7 +1738,7 @@
     chSaving = loading;
   }
 
-  // 转义文本，避免将外部内容直接插入 HTML。
+  // 转义文本，避免将外部内容直接插入 HTML
   function escapeHtml(value) {
     return String(value)
       .replace(/&/g, "&amp;")
@@ -1522,12 +1748,12 @@
       .replace(/'/g, "&#39;");
   }
 
-  // 当前访问面板只在飞书和企业微信之间切换；其它平台不复用这套配对 UI。
+  // 当前访问面板只在飞书和企业微信之间切换；其它平台不复用这套配UI
   function getCurrentAccessPlatform() {
     return currentChatPlatform === "wecom" ? "wecom" : "feishu";
   }
 
-  // 根据当前平台返回访问面板所需的 DOM 引用。
+  // 根据当前平台返回访问面板所需DOM 引用
   function getCurrentAccessEls() {
     if (getCurrentAccessPlatform() === "wecom") {
       return {
@@ -1553,7 +1779,7 @@
     };
   }
 
-  // 当前访问面板的状态提示要回写到各自平台的消息框，避免串台。
+  // 当前访问面板的状态提示要回写到各自平台的消息框，避免串台
   function showCurrentAccessMsg(msg, type) {
     if (getCurrentAccessPlatform() === "wecom") {
       showWecomMsg(msg, type);
@@ -1562,7 +1788,7 @@
     showChMsg(msg, type);
   }
 
-  // 清空当前访问面板消息。
+  // 清空当前访问面板消息
   function hideCurrentAccessMsg() {
     if (getCurrentAccessPlatform() === "wecom") {
       hideWecomMsg();
@@ -1571,20 +1797,20 @@
     hideChMsg();
   }
 
-  // 当前平台是否已启用。
+  // 当前平台是否已启用
   function isCurrentAccessEnabled() {
     var accessEls = getCurrentAccessEls();
     return !!(accessEls.enabled && accessEls.enabled.checked);
   }
 
-  // 读取当前访问面板对应平台的私聊策略。
+  // 读取当前访问面板对应平台的私聊策略
   function getCurrentAccessDmPolicy() {
     var accessEls = getCurrentAccessEls();
     var value = accessEls.dmPolicy ? String(accessEls.dmPolicy.value || "").trim() : "";
     return value === "open" ? "open" : "pairing";
   }
 
-  // 读取当前访问面板对应平台的群聊策略。
+  // 读取当前访问面板对应平台的群聊策略
   function getCurrentAccessGroupPolicy() {
     var accessEls = getCurrentAccessEls();
     var value = accessEls.groupPolicy ? String(accessEls.groupPolicy.value || "").trim() : "";
@@ -1592,22 +1818,22 @@
     return getCurrentAccessPlatform() === "wecom" ? "open" : "allowlist";
   }
 
-  // 当前访问面板是否处于 pairing 模式。
+  // 当前访问面板是否处于 pairing 模式
   function isCurrentAccessPairingMode() {
     return getCurrentAccessDmPolicy() === "pairing";
   }
 
-  // 当前访问面板是否处于群聊白名单模式。
+  // 当前访问面板是否处于群聊白名单模式
   function isCurrentAccessGroupAllowlistMode() {
     return getCurrentAccessGroupPolicy() === "allowlist";
   }
 
-  // 访问面板展示条件：私聊配对或群聊白名单任一开启。
+  // 访问面板展示条件：私聊配对或群聊白名单任一开启
   function isCurrentAccessPanelMode() {
     return isCurrentAccessPairingMode() || isCurrentAccessGroupAllowlistMode();
   }
 
-  // 同步待审批/已授权刷新按钮状态。
+  // 同步待审和已授权刷新按钮状态。
   function updateChAccessRefreshState() {
     var accessEls = getCurrentAccessEls();
     var loading = chPairingLoading || chApprovedLoading;
@@ -1633,14 +1859,14 @@
     updateChAccessRefreshState();
   }
 
-  // 单行展示名称：有名字就只显示名字，否则显示 ID。
+  // 单行展示名称：有名字就只显示名字，否则显ID
   function formatChEntryDisplay(name, id) {
     var trimmedName = String(name || "").trim();
     var trimmedId = String(id || "").trim();
     return trimmedName || trimmedId;
   }
 
-  // 渲染合并后的待审批+已授权列表（待审批固定在顶部）。
+  // 渲染合并后的待审已授权列表（待审批固定在顶部）
   function renderChAccessEntries() {
     var accessEls = getCurrentAccessEls();
     var listEl = accessEls.accessList;
@@ -1651,7 +1877,7 @@
     var approveIcon = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8.5L6.5 12L13 4"/></svg>';
     // 拒绝图标（叉号）
     var rejectIcon = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M4 4L12 12"/><path d="M12 4L4 12"/></svg>';
-    // 删除图标（垃圾桶）
+    // 删除图标（垃圾桶
     var removeIcon = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 4.5h10M6 4.5V3a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v1.5M4.5 4.5L5 13.5a1 1 0 0 0 1 1h4a1 1 0 0 0 1-1l.5-9"/></svg>';
 
     var pendingRows = (Array.isArray(chPairingRequests) ? chPairingRequests : []).map(function (item) {
@@ -1740,7 +1966,7 @@
     }).join("");
   }
 
-  // 读取飞书待审批列表（仅在飞书开关启用后展示）。
+  // 读取飞书待审批列表（仅在飞书开关启用后展示）
   async function loadChPairingRequests(options) {
     var silent = !!(options && options.silent);
     if (!isCurrentAccessEnabled() || !isCurrentAccessPairingMode()) {
@@ -1773,7 +1999,7 @@
     }
   }
 
-  // 读取飞书已配对账号列表（仅在飞书开关启用后展示）。
+  // 读取飞书已配对账号列表（仅在飞书开关启用后展示）
   async function loadChApprovedEntries(options) {
     var silent = !!(options && options.silent);
     if (!isCurrentAccessEnabled() || !isCurrentAccessPanelMode()) {
@@ -1804,7 +2030,7 @@
     }
   }
 
-  // 同步刷新飞书待审批与已配对两个列表。
+  // 同步刷新飞书待审批与已配对两个列表
   function refreshChPairingPanels(options) {
     updateChPairingSectionVisibility();
     updateChGroupAllowFromState();
@@ -1814,7 +2040,7 @@
     ]);
   }
 
-  // 接收主进程推送的飞书待审批快照，减少“手动刷新”依赖。
+  // 接收主进程推送的飞书待审批快照，减少“手动刷新”依赖
   function applyChPairingStateFromPush(payload) {
     var platform = getCurrentAccessPlatform();
     var channelPayload = payload && payload.channels ? payload.channels[platform] : null;
@@ -1837,7 +2063,7 @@
     updateChAccessRefreshState();
   }
 
-  // 批准指定飞书配对码，并自动刷新列表。
+  // 批准指定飞书配对码，并自动刷新列表
   async function handleChPairingApprove(code, id, name) {
     var trimmed = String(code || "").trim();
     if (!trimmed) {
@@ -1878,7 +2104,7 @@
     }
   }
 
-  // 拒绝指定飞书配对码，并自动刷新列表。
+  // 拒绝指定飞书配对码，并自动刷新列表
   async function handleChPairingReject(code, id, name) {
     var trimmed = String(code || "").trim();
     if (!trimmed) {
@@ -1919,7 +2145,7 @@
     }
   }
 
-  // 删除已授权用户/群聊，并刷新列表。
+  // 删除已授权用群聊，并刷新列表
   async function handleChApprovedRemove(kind, id) {
     var entryKind = String(kind || "").trim() === "group" ? "group" : "user";
     var entryId = String(id || "").trim();
@@ -1959,18 +2185,18 @@
     }
   }
 
-  // 获取飞书启用/禁用状态
+  // 获取飞书启用/禁用状
   function isChEnabled() {
     return els.chEnabled.checked;
   }
 
-  // 读取当前私聊模式（open/pairing）。
+  // 读取当前私聊模式（open/pairing）
   function getChDmPolicy() {
     var value = els.chDmPolicy ? String(els.chDmPolicy.value || "").trim() : "";
     return value === "open" ? "open" : "pairing";
   }
 
-  // 读取当前私聊会话模式（main/per-peer/per-channel-peer/per-account-channel-peer）。
+  // 读取当前私聊会话模式（main/per-peer/per-channel-peer/per-account-channel-peer）
   function getChDmScope() {
     var value = els.chDmScope ? String(els.chDmScope.value || "").trim() : "";
     if (
@@ -1983,34 +2209,34 @@
     return "main";
   }
 
-  // 当前是否为配对模式（仅该模式下展示配对相关面板）。
+  // 当前是否为配对模式（仅该模式下展示配对相关面板）
   function isChPairingMode() {
     return getChDmPolicy() === "pairing";
   }
 
-  // 当前是否为群聊白名单模式。
+  // 当前是否为群聊白名单模式
   function isChGroupAllowlistMode() {
     return getChGroupPolicy() === "allowlist";
   }
 
-  // 访问列表面板展示条件：私聊配对或群聊白名单任一开启。
+  // 访问列表面板展示条件：私聊配对或群聊白名单任一开启
   function isChAccessPanelMode() {
     return isChPairingMode() || isChGroupAllowlistMode();
   }
 
-  // 读取群聊策略（open/allowlist/disabled）。
+  // 读取群聊策略（open/allowlist/disabled）
   function getChGroupPolicy() {
     var value = els.chGroupPolicy ? String(els.chGroupPolicy.value || "").trim() : "";
     if (value === "open" || value === "disabled" || value === "allowlist") return value;
     return "allowlist";
   }
 
-  // 校验是否为飞书群 ID（chat_id）。
+  // 校验是否为飞书群 ID（chat_id）
   function isFeishuGroupId(value) {
     return /^oc_[A-Za-z0-9]+$/.test(String(value || "").trim());
   }
 
-  // 从当前合并列表提取群聊白名单 ID（仅保留合法 oc_ 群 ID）。
+  // 从当前合并列表提取群聊白名单 ID（仅保留合法 oc_ ID）
   function getChGroupAllowFromEntries() {
     return Array.from(
       new Set(
@@ -2022,7 +2248,7 @@
     );
   }
 
-  // 根据模式切换配对面板可见性。
+  // 根据模式切换配对面板可见性
   function updateChPairingSectionVisibility() {
     var accessEls = getCurrentAccessEls();
     if (!accessEls.pairingSection) return;
@@ -2030,7 +2256,7 @@
     updateChAccessRefreshState();
   }
 
-  // 仅在群聊白名单模式下显示“添加群 ID”按钮。
+  // 仅在群聊白名单模式下显示“添加群 ID”按钮
   function updateChGroupAllowFromState() {
     var accessEls = getCurrentAccessEls();
     if (!accessEls.accessAddGroup) return;
@@ -2038,7 +2264,7 @@
     updateChAccessRefreshState();
   }
 
-  // 打开添加群 ID 弹窗。
+  // 打开添加ID 弹窗
   function openChGroupDialog() {
     if (!els.chGroupDialog || !els.chGroupDialogInput) return;
     els.chGroupDialogInput.value = "oc_";
@@ -2049,20 +2275,20 @@
     }, 0);
   }
 
-  // 关闭添加群 ID 弹窗。
+  // 关闭添加ID 弹窗
   function closeChGroupDialog() {
     if (!els.chGroupDialog) return;
     toggleEl(els.chGroupDialog, false);
   }
 
-  // 触发添加入口（仅打开弹窗，不直接请求）。
+  // 触发添加入口（仅打开弹窗，不直接请求）
   function handleChAccessAddGroup() {
     if (!isChEnabled() || !isChGroupAllowlistMode() || chGroupAdding) return;
     hideChMsg();
     openChGroupDialog();
   }
 
-  // 提交添加群 ID 到白名单（立即持久化并刷新列表）。
+  // 提交添加ID 到白名单（立即持久化并刷新列表）
   async function handleChGroupDialogConfirm() {
     if (chGroupAdding || !els.chGroupDialogInput) return;
     var groupId = String(els.chGroupDialogInput.value || "").trim();
@@ -2104,7 +2330,7 @@
 
     var enabled = isChEnabled();
 
-    // 禁用 → 直接保存开关状态
+    // 禁用 直接保存开关状
     if (!enabled) {
       setChSaving(true);
       hideChMsg();
@@ -2124,7 +2350,7 @@
       return;
     }
 
-    // 启用 → 校验凭据
+    // 启用 校验凭据
     var appId = els.chAppId.value.trim();
     var appSecret = els.chAppSecret.value.trim();
 
@@ -2184,7 +2410,7 @@
       if (data.appId) els.chAppId.value = data.appId;
       if (data.appSecret) els.chAppSecret.value = data.appSecret;
 
-      // 回填启用状态
+      // 回填启用状
       var enabled = data.enabled && data.appId;
       els.chEnabled.checked = !!enabled;
       var dmPolicy = data.dmPolicy === "open" ? "open" : "pairing";
@@ -2207,42 +2433,42 @@
 
   // ── WeCom ──
 
-  // 企业微信消息框与其它平台分离，避免状态提示互相覆盖。
+  // 企业微信消息框与其它平台分离，避免状态提示互相覆盖
   function showWecomMsg(msg, type) {
     els.wecomMsgBox.textContent = msg;
     els.wecomMsgBox.className = "msg-box " + type;
   }
 
-  // 清空企业微信平台上的错误 / 成功提示。
+  // 清空企业微信平台上的错误 / 成功提示
   function hideWecomMsg() {
     els.wecomMsgBox.classList.add("hidden");
     els.wecomMsgBox.textContent = "";
     els.wecomMsgBox.className = "msg-box hidden";
   }
 
-  // 同步企业微信保存按钮的 loading 状态。
+  // 同步企业微信保存按钮 loading 状态。
   function setWecomSaving(loading) {
     wecomSaving = loading;
   }
 
-  // 读取当前企业微信平台是否启用。
+  // 读取当前企业微信平台是否启用
   function isWecomEnabled() {
     return !!(els.wecomEnabled && els.wecomEnabled.checked);
   }
 
-  // 读取企业微信群策略。
+  // 读取企业微信群策略
   function getWecomGroupPolicy() {
     var value = String(els.wecomGroupPolicy.value || "").trim();
     if (value === "allowlist" || value === "disabled") return value;
     return "open";
   }
 
-  // 按当前群策略切换白名单输入区显隐。
+  // 按当前群策略切换白名单输入区显隐
   function updateWecomGroupAllowFromState() {
     toggleEl(els.wecomGroupAllowFromGroup, getWecomGroupPolicy() === "allowlist");
   }
 
-  // 统一解析企业微信群白名单，支持换行 / 逗号 / 分号分隔。
+  // 统一解析企业微信群白名单，支持换/ 逗号 / 分号分隔
   function parseWecomGroupAllowFrom() {
     return Array.from(new Set(
       String(els.wecomGroupAllowFrom.value || "")
@@ -2252,7 +2478,7 @@
     ));
   }
 
-  // 保存企业微信配置，直接落盘并触发 Gateway 重启。
+  // 保存企业微信配置，直接落盘并触发 Gateway 重启
   async function handleWecomSave() {
     if (wecomSaving) return;
 
@@ -2310,7 +2536,7 @@
     }
   }
 
-  // 回填企业微信配置，并在未打包插件时给出前置提示。
+  // 回填企业微信配置，并在未打包插件时给出前置提示
   async function loadWecomConfig() {
     try {
       var result = await window.oneclaw.settingsGetWecomConfig();
@@ -2343,30 +2569,30 @@
 
   // ── DingTalk ──
 
-  // 钉钉消息框与其它平台分离，避免不同平台的状态提示互相覆盖。
+  // 钉钉消息框与其它平台分离，避免不同平台的状态提示互相覆盖
   function showDingtalkMsg(msg, type) {
     els.dingtalkMsgBox.textContent = msg;
     els.dingtalkMsgBox.className = "msg-box " + type;
   }
 
-  // 清空钉钉平台上的错误 / 成功提示。
+  // 清空钉钉平台上的错误 / 成功提示
   function hideDingtalkMsg() {
     els.dingtalkMsgBox.classList.add("hidden");
     els.dingtalkMsgBox.textContent = "";
     els.dingtalkMsgBox.className = "msg-box hidden";
   }
 
-  // 同步钉钉保存按钮的 loading 状态。
+  // 同步钉钉保存按钮 loading 状态。
   function setDingtalkSaving(loading) {
     dingtalkSaving = loading;
   }
 
-  // 读取当前钉钉平台是否启用。
+  // 读取当前钉钉平台是否启用
   function isDingtalkEnabled() {
     return !!(els.dingtalkEnabled && els.dingtalkEnabled.checked);
   }
 
-  // 统一解析会话超时输入；留空时回退到 30 分钟默认值。
+  // 统一解析会话超时输入；留空时回退30 分钟默认值
   function parseDingtalkSessionTimeout() {
     var raw = String(els.dingtalkSessionTimeout.value || "").trim();
     if (!raw) return 1800000;
@@ -2377,7 +2603,7 @@
     return Math.floor(parsed);
   }
 
-  // 保存钉钉配置，自动复用当前 Gateway token，只让设置页管理核心字段。
+  // 保存钉钉配置，自动复用当Gateway token，只让设置页管理核心字段
   async function handleDingtalkSave() {
     if (dingtalkSaving) return;
 
@@ -2449,7 +2675,7 @@
     }
   }
 
-  // 回填钉钉配置，并在未打包插件时给出前置提示。
+  // 回填钉钉配置，并在未打包插件时给出前置提示
   async function loadDingtalkConfig() {
     try {
       var result = await window.oneclaw.settingsGetDingtalkConfig();
@@ -2475,30 +2701,30 @@
 
   // ── QQ Bot ──
 
-  // QQ 消息框与飞书分离，避免两个平台互相覆盖状态提示。
+  // QQ 消息框与飞书分离，避免两个平台互相覆盖状态提示
   function showQqMsg(msg, type) {
     els.qqMsgBox.textContent = msg;
     els.qqMsgBox.className = "msg-box " + type;
   }
 
-  // 清空 QQ 平台上的错误 / 成功提示。
+  // 清空 QQ 平台上的错误 / 成功提示
   function hideQqMsg() {
     els.qqMsgBox.classList.add("hidden");
     els.qqMsgBox.textContent = "";
     els.qqMsgBox.className = "msg-box hidden";
   }
 
-  // 同步 QQ 保存按钮的 loading 状态。
+  // 同步 QQ 保存按钮 loading 状态。
   function setQqSaving(loading) {
     qqSaving = loading;
   }
 
-  // 读取当前 QQ 平台是否启用。
+  // 读取当前 QQ 平台是否启用
   function isQqEnabled() {
     return !!(els.qqEnabled && els.qqEnabled.checked);
   }
 
-  // 保存 QQ Bot 配置，流程与飞书保持一致：先校验，再落配置，再重启网关。
+  // 保存 QQ Bot 配置，流程与飞书保持一致：先校验，再落配置，再重启网关
   async function handleQqSave() {
     if (qqSaving) return;
 
@@ -2564,7 +2790,7 @@
     }
   }
 
-  // 回填 QQ Bot 配置，并在未打包插件时给出前置提示。
+  // 回填 QQ Bot 配置，并在未打包插件时给出前置提示
   async function loadQqbotConfig() {
     try {
       var result = await window.oneclaw.settingsGetQqbotConfig();
@@ -2610,7 +2836,7 @@
       els.sessionMemoryEnabled.checked = data.sessionMemoryEnabled !== false;
       // 回填 iMessage toggle
       els.imessageEnabled.checked = !!data.imessageEnabled;
-      // 按平台能力展示并回填开机启动开关
+      // 按平台能力展示并回填开机启动开
       toggleEl(els.launchAtLoginRow, data.launchAtLoginSupported === true);
       if (data.launchAtLoginSupported === true) {
         els.launchAtLoginEnabled.checked = data.launchAtLogin === true;
@@ -2622,14 +2848,14 @@
     }
   }
 
-  // 同步开关状态到 CLI 偏好，操作中禁用开关。
+  // 同步开关状态到 CLI 偏好，操作中禁用开关
   function renderCliControls() {
     if (!els.cliEnabled) return;
     els.cliEnabled.checked = cliEnabled;
     els.cliEnabled.disabled = cliOperating;
   }
 
-  // 读取主进程 CLI 状态；新版本优先使用 enabled，旧版本回退 installed。
+  // 读取主进CLI 状态；新版本优先使enabled，旧版本回退 installed
   async function loadCliStatus() {
     if (
       !window.oneclaw ||
@@ -2654,7 +2880,7 @@
     }
   }
 
-  // 开关切换：ON → 安装，OFF → 卸载。
+  // 开关切换：ON 安装，OFF 卸载
   async function handleCliToggle() {
     if (cliOperating) return;
     hideAdvMsg();
@@ -2894,7 +3120,7 @@
 
   // ── Kimi Tab ──
 
-  // 从 install.sh 命令或直接输入解析 bot token
+  // install.sh 命令或直接输入解bot token
   function parseBotToken(input) {
     var match = input.match(/--bot-token\s+(\S+)/);
     if (match) return match[1];
@@ -2903,13 +3129,13 @@
     return "";
   }
 
-  // 掩码 token（保留首尾各 4 字符）
+  // 掩码 token（保留首尾各 4 字符
   function maskToken(token) {
     if (!token || token.length <= 8) return token || "";
     return token.slice(0, 4) + "..." + token.slice(-4);
   }
 
-  // Kimi 消息框
+  // Kimi 消息
   function showKimiMsg(msg, type) {
     els.kimiMsgBox.textContent = msg;
     els.kimiMsgBox.className = "msg-box " + type;
@@ -2925,7 +3151,7 @@
     kimiSaving = loading;
   }
 
-  // 获取 Kimi 启用/禁用状态
+  // 获取 Kimi 启用/禁用状
   function isKimiEnabled() {
     return els.kimiEnabled.checked;
   }
@@ -2943,7 +3169,7 @@
         els.kimiSettingsInput.value = data.botToken;
       }
 
-      // 回填启用状态
+      // 回填启用状
       var enabled = data.enabled && data.botToken;
       els.kimiEnabled.checked = !!enabled;
     } catch (err) {
@@ -2951,13 +3177,13 @@
     }
   }
 
-  // 保存 Kimi 配置（Gateway 通过 chokidar 监听配置文件变更，自动热重载）
+  // 保存 Kimi 配置（Gateway 通过 chokidar 监听配置文件变更，自动热重载
   async function handleKimiSave() {
     if (kimiSaving) return;
 
     var enabled = isKimiEnabled();
 
-    // 禁用 → 直接保存开关状态
+    // 禁用 直接保存开关状
     if (!enabled) {
       setKimiSaving(true);
       hideKimiMsg();
@@ -2976,7 +3202,7 @@
       return;
     }
 
-    // 启用 → 校验 token
+    // 启用 校验 token
     var botToken = parseBotToken(els.kimiSettingsInput.value);
     if (!botToken) {
       showKimiMsg(t("error.noKimiBotToken"), "error");
@@ -3007,106 +3233,12 @@
 
   // ── Search Tab ──
 
-  // Search 消息框
-  function showSearchMsg(msg, type) {
-    els.searchMsgBox.textContent = msg;
-    els.searchMsgBox.className = "msg-box " + type;
-  }
-
-  function hideSearchMsg() {
-    els.searchMsgBox.classList.add("hidden");
-    els.searchMsgBox.textContent = "";
-    els.searchMsgBox.className = "msg-box hidden";
-  }
-
-  function setSearchSaving(loading) {
-    searchSaving = loading;
-    els.btnSearchSave.disabled = loading;
-    els.btnSearchSaveText.textContent = loading ? t("search.saving") : t("search.save");
-    els.btnSearchSaveSpinner.classList.toggle("hidden", !loading);
-  }
-
-  function isSearchEnabled() {
-    return els.searchEnabled.checked;
-  }
-
-  // 加载 Search 配置
-  async function loadSearchConfig() {
-    try {
-      var result = await window.oneclaw.settingsGetKimiSearchConfig();
-      if (!result.success || !result.data) return;
-
-      var data = result.data;
-      els.searchEnabled.checked = !!data.enabled;
-      toggleEl(els.searchFields, !!data.enabled);
-
-      // 回填专属 key
-      if (data.apiKey) {
-        els.searchApiKey.value = data.apiKey;
-      }
-
-      // 回填自定义服务地址
-      els.searchServiceBaseUrl.value = data.serviceBaseUrl || "";
-
-      // 自动复用提示
-      updateSearchAutoKeyHint(data);
-    } catch (err) {
-      console.error("[Settings] loadSearchConfig failed:", err);
-    }
-  }
-
-  // 更新自动复用 key 提示：无专属 key + 有 kimi-code key → 显示提示 + 隐藏输入框
-  function updateSearchAutoKeyHint(data) {
-    var hasOwnKey = data.apiKey && data.apiKey.trim();
-    var hasKimiCodeKey = data.isKimiCodeConfigured;
-    var autoReusing = !hasOwnKey && hasKimiCodeKey;
-    if (autoReusing) {
-      els.searchAutoKeyHint.textContent = t("search.autoKeyHint");
-      els.searchAutoKeyHint.classList.remove("hidden");
-    } else {
-      els.searchAutoKeyHint.classList.add("hidden");
-    }
-    toggleEl(els.searchApiKeyGroup, !autoReusing);
-  }
-
-  // 保存 Search 配置
-  async function handleSearchSave() {
-    if (searchSaving) return;
-
-    var enabled = isSearchEnabled();
-
-    setSearchSaving(true);
-    hideSearchMsg();
-
-    try {
-      var params = { enabled: enabled };
-      // 输入框可见时传递 key（空字符串表示清除专属 key，走自动复用）
-      if (enabled && !els.searchApiKeyGroup.classList.contains("hidden")) {
-        params.apiKey = els.searchApiKey.value.trim();
-      }
-      // 自定义服务地址（空字符串表示恢复默认）
-      params.serviceBaseUrl = els.searchServiceBaseUrl.value.trim();
-      var result = await window.oneclaw.settingsSaveKimiSearchConfig(params);
-      setSearchSaving(false);
-      if (result.success) {
-        showToast(t("common.saved"));
-        // 刷新提示状态
-        loadSearchConfig();
-      } else {
-        showSearchMsg(result.message || "Save failed", "error");
-      }
-    } catch (err) {
-      setSearchSaving(false);
-      showSearchMsg(t("error.connection") + (err.message || "Unknown error"), "error");
-    }
-  }
-
-  // ── 从配置 + 预设合并出模型列表（配置优先，预设补充） ──
+  // Search 消息
 
   function buildMergedModelList(configuredModels, provider, subPlatform) {
     // 以配置中的模型为基础
     var models = configuredModels ? configuredModels.slice() : [];
-    // 补充预设中未出现的模型
+    // 补充预设中未出现的模
     var presets = getPresetModels(provider, subPlatform);
     presets.forEach(function (m) {
       if (models.indexOf(m) === -1) models.push(m);
@@ -3114,7 +3246,7 @@
     return models;
   }
 
-  // 取对应 provider/subPlatform 的预设模型列表
+  // 取对provider/subPlatform 的预设模型列
   function getPresetModels(provider, subPlatform) {
     var subPlatforms = getProviderSubPlatforms(provider);
     if (subPlatforms) {
@@ -3127,8 +3259,11 @@
     return cfg ? cfg.models : [];
   }
 
-  // provider + subPlatform → 人类可读名称
-  function getProviderDisplayName(provider, subPlatform) {
+  // provider + subPlatform 人类可读名称
+  function getProviderDisplayName(provider, subPlatform, roleName) {
+    var roleLabel = getRoleProviderLabel(provider, roleName || currentModelRole);
+    if (roleLabel) return roleLabel;
+
     var subPlatforms = getProviderSubPlatforms(provider);
     if (subPlatforms) {
       var selected = subPlatform || getDefaultSubPlatform(provider);
@@ -3136,11 +3271,12 @@
       if (option) return option.label;
     }
     if (provider === "moonshot") {
-      var names = { "moonshot-cn": "Moonshot CN", "moonshot-ai": "Moonshot AI", "kimi-code": "Kimi 会员订阅" };
+      var names = { "moonshot-cn": "Moonshot CN", "moonshot-ai": "Moonshot AI", "kimi-code": "Kimi 会员" };
       return names[subPlatform] || "Kimi";
     }
     var map = {
-      wanboshan: "万博山",
+      wbsmodels: "万博山思考",
+      clawimage: "万博山生图",
       anthropic: "Anthropic",
       openai: "OpenAI",
       google: "Google",
@@ -3156,55 +3292,113 @@
       var result = await window.oneclaw.settingsGetConfig();
       if (!result.success || !result.data) return;
 
-      var data = result.data;
+      var rootData = result.data;
+      if (rootData.savedProviders) {
+        savedProviders = rootData.savedProviders;
+      }
 
-      // 缓存所有已保存 provider 的配置（供切换时回填）
-      if (data.savedProviders) {
-        savedProviders = data.savedProviders;
+      modelRoleConfigs =
+        rootData.modelRoles && typeof rootData.modelRoles === "object"
+          ? rootData.modelRoles
+          : {};
+
+      if (els.modelRoleTabs) {
+        els.modelRoleTabs.querySelectorAll(".provider-tab").forEach(function (tab) {
+          var roleName = normalizeModelRoleName(tab.dataset.modelRole);
+          tab.classList.toggle("active", roleName === currentModelRole);
+        });
+      }
+
+      var data =
+        modelRoleConfigs[currentModelRole] ||
+        (currentModelRole === "thinking"
+          ? rootData
+          : modelRoleConfigs.thinking || rootData);
+
+      renderProviderOverview(data || {});
+
+      if (!isRoleConfigured(data)) {
+        switchProvider(getDefaultProviderForRole(currentModelRole));
+        els.apiKeyInput.value = "";
+        els.baseURLInput.value = "";
+        els.modelInput.value = "";
+        els.customModelInput.value = "";
+        if (els.customPreset) {
+          els.customPreset.value = "__placeholder__";
+          applyCustomPreset("__placeholder__");
+        }
+        setProviderEditing(providerEditing);
+        return;
       }
 
       var provider = data.provider;
-      if (!provider) return;
-      var uiProvider = PROVIDERS[provider] ? provider : "custom";
-
-      // Moonshot 先选子平台（影响后续模型列表）
-      if (provider === "moonshot" && data.subPlatform) {
-        var radio = document.querySelector('input[name="subPlatform"][value="' + data.subPlatform + '"]');
-        if (radio) radio.checked = true;
+      if (!provider) {
+        setProviderEditing(providerEditing);
+        return;
       }
 
+      var detectedProvider = PROVIDERS[provider] ? provider : "";
+      var uiProvider = isProviderAllowedForRole(detectedProvider, currentModelRole)
+        ? detectedProvider
+        : getDefaultProviderForRole(currentModelRole);
       switchProvider(uiProvider, data.subPlatform);
 
-        // apiKey 填入 value（完整值，type=password 自动掩码显示）
-        if (data.apiKey) {
-          els.apiKeyInput.value = data.apiKey;
-        }
+      if (uiProvider !== detectedProvider) {
+        setProviderEditing(providerEditing);
+        return;
+      }
 
-        if (uiProvider === "custom" && !data.customPreset) {
-          els.customPreset.value = "";
-          applyCustomPreset("");
-        }
+      if (data.apiKey) {
+        els.apiKeyInput.value = data.apiKey;
+      }
 
-        // Custom 预设恢复：后端返回 customPreset 时选中对应下拉项
-        if (uiProvider === "custom" && data.customPreset && CUSTOM_PRESETS[data.customPreset]) {
+      if (uiProvider === "custom" && !data.customPreset) {
+        els.customPreset.value = "";
+        applyCustomPreset("");
+      }
+
+      if (uiProvider === "custom" && data.customPreset && CUSTOM_PRESETS[data.customPreset]) {
         els.customPreset.value = data.customPreset;
         applyCustomPreset(data.customPreset);
 
-        // 恢复模型选择：检查 modelID 是否在预设列表中
         if (data.modelID) {
           var presetModels = CUSTOM_PRESETS[data.customPreset].models;
           var inPreset = presetModels.indexOf(data.modelID) >= 0;
           if (inPreset) {
             els.modelSelect.value = data.modelID;
           } else {
-            // 模型不在预设列表中 → 选中"自定义模型"并填入输入框
+            els.modelSelect.value = CUSTOM_MODEL_SENTINEL;
+            els.customModelInput.value = data.modelID;
+            toggleEl(els.customModelInputGroup, true);
+          }
+        }
+      } else if (isDirectConfigProvider(uiProvider)) {
+        els.baseURLInput.value = data.baseURL || PROVIDERS[uiProvider].defaultBaseUrl || "";
+        selectApiType(data.api || PROVIDERS[uiProvider].defaultApiType || "openai-completions");
+        var mergedDirect = buildMergedModelList(
+          data.configuredModels,
+          uiProvider,
+          data.subPlatform
+        );
+        if (mergedDirect.length > 0) {
+          populatePresetModels(mergedDirect);
+        }
+        if (data.modelID) {
+          var directInList = false;
+          for (var j = 0; j < els.modelSelect.options.length; j++) {
+            if (els.modelSelect.options[j].value === data.modelID) {
+              directInList = true;
+              els.modelSelect.selectedIndex = j;
+              break;
+            }
+          }
+          if (!directInList) {
             els.modelSelect.value = CUSTOM_MODEL_SENTINEL;
             els.customModelInput.value = data.modelID;
             toggleEl(els.customModelInputGroup, true);
           }
         }
       } else if (uiProvider !== "custom") {
-        // 用配置中的模型列表 + 预设合并后重新填充下拉
         var merged = buildMergedModelList(
           data.configuredModels,
           uiProvider,
@@ -3214,7 +3408,6 @@
           populatePresetModels(merged);
         }
 
-        // 选中 primary model，不在列表中则切到自定义输入
         if (data.modelID) {
           var inList = false;
           for (var i = 0; i < els.modelSelect.options.length; i++) {
@@ -3231,7 +3424,6 @@
           }
         }
       } else {
-        // 纯手动 Custom 字段回填
         if (data.modelID) els.modelInput.value = data.modelID;
         if (data.baseURL) els.baseURLInput.value = data.baseURL;
         if (data.api) {
@@ -3241,13 +3433,7 @@
         els.supportImageCheckbox.checked = data.supportsImage !== false;
       }
 
-      // 更新当前 provider 状态指示
-      var displayName = getProviderDisplayName(provider, data.subPlatform);
-      var statusEl = document.getElementById("currentProviderStatus");
-      if (statusEl) {
-        statusEl.textContent = t("provider.currentUsing") + displayName + " · " + data.modelID;
-        statusEl.classList.remove("hidden");
-      }
+      setProviderEditing(providerEditing);
     } catch (err) {
       console.error("[Settings] loadCurrentConfig failed:", err);
     }
@@ -3255,7 +3441,7 @@
 
   // ── Backup Tab ──
 
-  // 加载备份与恢复数据并渲染列表。
+  // 加载备份与恢复数据并渲染列表
   async function loadBackupData() {
     if (!window.oneclaw || !window.oneclaw.settingsListConfigBackups) return;
 
@@ -3271,7 +3457,7 @@
     }
   }
 
-  // 渲染备份页：最近可用快照信息与历史备份条目。
+  // 渲染备份页：最近可用快照信息与历史备份条目
   function renderBackupData(data) {
     if (!els.backupList) return;
 
@@ -3320,7 +3506,7 @@
     });
   }
 
-  // 恢复配置后，重载所有设置面板数据，防止旧 UI 状态覆盖新配置。
+  // 恢复配置后，重载所有设置面板数据，防止UI 状态覆盖新配置
   async function refreshAllSettingsViewsAfterRestore() {
     await Promise.allSettled([
       loadCurrentConfig(),
@@ -3329,14 +3515,13 @@
       loadDingtalkConfig(),
       loadQqbotConfig(),
       loadKimiConfig(),
-      loadSearchConfig(),
       loadAdvancedConfig(),
       loadBackupData(),
       refreshGatewayState(),
     ]);
   }
 
-  // 恢复指定历史备份并触发 Gateway 重启。
+  // 恢复指定历史备份并触Gateway 重启
   async function handleRestoreBackup(fileName) {
     if (backupRestoring || backupResetting) return;
     if (!fileName) return;
@@ -3366,7 +3551,7 @@
     setBackupRestoring(false);
   }
 
-  // 一键恢复最近可用配置并触发 Gateway 重启。
+  // 一键恢复最近可用配置并触发 Gateway 重启
   async function handleRestoreLastKnownGood() {
     if (backupRestoring || backupResetting) return;
     if (!window.confirm(t("backup.confirmRestoreLastKnownGood"))) return;
@@ -3433,7 +3618,7 @@
     }
   }
 
-  // 查询 Gateway 当前状态并刷新按钮可用性。
+  // 查询 Gateway 当前状态并刷新按钮可用性
   async function refreshGatewayState() {
     if (!window.oneclaw || !window.oneclaw.getGatewayState) {
       setGatewayStateUI("unknown");
@@ -3453,7 +3638,7 @@
     setTimeout(refreshGatewayState, 3000);
   }
 
-  // 按钮操作统一入口：重启/启动/停止 Gateway。
+  // 按钮操作统一入口：重启动/停止 Gateway
   async function handleGatewayAction(kind) {
     if (gatewayOperating || backupRestoring || backupResetting) return;
     if (!window.oneclaw) return;
@@ -3481,7 +3666,7 @@
     }
   }
 
-  // 根据主进程传入的 notice code，在恢复页顶部展示上下文提示。
+  // 根据主进程传入的 notice code，在恢复页顶部展示上下文提示
   function applyRecoveryNotice(notice) {
     if (!notice) return;
     if (notice === "config-invalid-json") {
@@ -3522,7 +3707,7 @@
     setGatewayStateUI(gatewayState);
   }
 
-  // 删除配置并重启应用，让用户重新进入引导流程。
+  // 删除配置并重启应用，让用户重新进入引导流程
   async function handleResetConfig() {
     if (backupRestoring || backupResetting) return;
     if (!window.confirm(t("backup.confirmReset"))) return;
@@ -3580,7 +3765,7 @@
     el.classList.toggle("hidden", !show);
   }
 
-  // 短暂浮层提示（3s 自动消失）
+  // 短暂浮层提示s 自动消失
   function showToast(msg) {
     var container = document.getElementById("toastContainer");
     var el = document.createElement("div");
@@ -3631,12 +3816,35 @@
     });
 
     // Provider tab 切换
+    if (els.modelRoleTabs) {
+      els.modelRoleTabs.addEventListener("click", function (e) {
+        var tab = e.target.closest(".provider-tab[data-model-role]");
+        if (!tab) return;
+        switchModelRole(tab.dataset.modelRole);
+      });
+    }
+
+    if (els.btnProviderConfigure) {
+      els.btnProviderConfigure.addEventListener("click", function () {
+        hideMsg();
+        setProviderEditing(!providerEditing);
+      });
+    }
+
+    if (els.btnProviderCancel) {
+      els.btnProviderCancel.addEventListener("click", function () {
+        if (saving) return;
+        hideMsg();
+        setProviderEditing(false);
+        loadCurrentConfig();
+      });
+    }
     els.providerTabs.addEventListener("click", function (e) {
       var tab = e.target.closest(".provider-tab");
       if (tab) switchProvider(tab.dataset.provider);
     });
 
-    // Moonshot 子平台切换
+    // Moonshot 子平台切
     if (els.subPlatformGroup) {
       els.subPlatformGroup.addEventListener("change", function () {
         if (hasSubPlatformOptions(currentProvider)) {
@@ -3653,7 +3861,7 @@
       applyCustomPreset(els.customPreset.value);
     });
 
-    // 模型下拉切换 → 控制自定义模型输入框显隐
+    // 模型下拉切换 控制自定义模型输入框显隐
     els.modelSelect.addEventListener("change", handleModelSelectChange);
 
     // 平台链接
@@ -3665,25 +3873,25 @@
       }
     });
 
-    // 密码可见性
+    // 密码可见
     els.btnToggleKey.addEventListener("click", togglePasswordVisibility);
 
     // 保存
     els.btnSave.addEventListener("click", handleSave);
 
-    // Enter 键保存
+    // Enter 键保
     els.apiKeyInput.addEventListener("keydown", function (e) {
       if (e.key === "Enter") handleSave();
     });
 
-    // 聊天集成页二级平台切换
+    // 聊天集成页二级平台切
     els.chatPlatformButtons.forEach(function (button) {
       button.addEventListener("click", function () {
         switchChatPlatform(button.dataset.chatPlatform || "feishu");
       });
     });
 
-    // Channels tab — 启用/禁用切换：开关变化即刻保存
+    // Channels tab 启用/禁用切换：开关变化即刻保
     els.chEnabled.addEventListener("change", function () {
       updateChPairingSectionVisibility();
       updateChGroupAllowFromState();
@@ -3785,7 +3993,7 @@
       if (e.key === "Enter") e.target.blur();
     });
 
-    // WeCom tab — 启用/禁用切换 + Secret 可见性
+    // WeCom tab 启用/禁用切换 + Secret 可见
     if (els.wecomEnabled) {
       els.wecomEnabled.addEventListener("change", function () {
         updateWecomGroupAllowFromState();
@@ -3865,7 +4073,7 @@
       });
     }
 
-    // DingTalk tab — 启用/禁用切换 + Secret 可见性
+    // DingTalk tab 启用/禁用切换 + Secret 可见
     if (els.dingtalkEnabled) {
       els.dingtalkEnabled.addEventListener("change", function () {
         handleDingtalkSave();
@@ -3901,7 +4109,7 @@
       });
     }
 
-    // QQ Bot tab — 启用/禁用切换 + Secret 可见性
+    // QQ Bot tab 启用/禁用切换 + Secret 可见
     if (els.qqEnabled) {
       els.qqEnabled.addEventListener("change", function () {
         handleQqSave();
@@ -3924,13 +4132,13 @@
       });
     }
 
-    // Kimi tab — 启用/禁用切换 + Token 可见性
+    // Kimi tab 启用/禁用切换 + Token 可见
     els.kimiEnabled.addEventListener("change", function () { handleKimiSave(); });
     els.btnToggleKimiToken.addEventListener("click", togglePasswordVisibility);
     els.kimiSettingsInput.addEventListener("input", function () {
       var raw = els.kimiSettingsInput.value;
       var token = parseBotToken(raw);
-      // 从命令格式中提取到 token → 替换输入框 + toast 提示
+      // 从命令格式中提取token 替换输入+ toast 提示
       if (token && raw.indexOf("--bot-token") !== -1 && raw !== token) {
         els.kimiSettingsInput.value = token;
         showToast(t("kimi.tokenParsed") + maskToken(token));
@@ -3942,19 +4150,6 @@
         window.oneclaw.openExternal("https://www.kimi.com/bot?utm_source=oneclaw");
       }
     });
-
-    // Search tab — 启用/禁用切换 + Key 可见性 + 平台链接
-    els.searchEnabled.addEventListener("change", function () { toggleEl(els.searchFields, isSearchEnabled()); });
-    els.btnToggleSearchKey.addEventListener("click", togglePasswordVisibility);
-    els.btnSearchSave.addEventListener("click", handleSearchSave);
-    if (els.searchPlatformLink) {
-      els.searchPlatformLink.addEventListener("click", function (e) {
-        e.preventDefault();
-        if (window.oneclaw && window.oneclaw.openExternal) {
-          window.oneclaw.openExternal("https://kimi.com/code?utm_source=oneclaw");
-        }
-      });
-    }
 
     // Advanced
     els.btnAdvSave.addEventListener("click", handleAdvSave);
@@ -4011,7 +4206,7 @@
       });
     }
 
-    // About — 检查更新按钮
+    // About 检查更新按
     var aboutCheckBtn = document.getElementById("aboutCheckUpdate");
     if (aboutCheckBtn) {
       aboutCheckBtn.addEventListener("click", function () {
@@ -4021,7 +4216,7 @@
       });
     }
 
-    // 订阅更新状态推送
+    // 订阅更新状态推
     if (window.oneclaw && window.oneclaw.onUpdateState) {
       window.oneclaw.onUpdateState(function (state) {
         renderUpdateStatus(state);
@@ -4031,7 +4226,7 @@
 
   // ── About Tab ──
 
-  // 加载版本信息和更新状态
+  // 加载版本信息和更新状
   async function loadAboutInfo() {
     try {
       var info = await window.oneclaw.settingsGetAboutInfo();
@@ -4100,7 +4295,9 @@
     syncCustomPresetOptions();
 
     bindEvents();
-    switchProvider("wanboshan");
+    renderProviderTabsForRole(currentModelRole);
+    switchProvider(getDefaultProviderForRole(currentModelRole));
+    setProviderEditing(false);
     switchTab(initialTab || "provider");
     switchChatPlatform(initialChatPlatform || "feishu");
     applyRecoveryNotice(startupNotice);
@@ -4110,7 +4307,6 @@
     loadDingtalkConfig();
     loadQqbotConfig();
     loadKimiConfig();
-    loadSearchConfig();
     loadAdvancedConfig();
     loadAppearanceSettings();
     refreshGatewayState();
@@ -4122,3 +4318,4 @@
 
   init();
 })();
+

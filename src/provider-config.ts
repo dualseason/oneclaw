@@ -3,8 +3,10 @@ import * as http from "http";
 import * as fs from "fs";
 import { resolveUserConfigPath, resolveUserStateDir } from "./constants";
 import { backupCurrentUserConfig } from "./config-backup";
+import { parseJsonText } from "./json-utils";
+import { migrateEmbeddedModelRoutesToSidecar } from "./model-routes";
 
-// ── Provider 配置预设（与 kimiclaw ProviderSetupView.swift 对齐） ──
+// 鈹€鈹€ Provider 閰嶇疆棰勮锛堜笌 kimiclaw ProviderSetupView.swift 瀵归綈?鈹€鈹€
 
 export interface ProviderPreset {
   baseUrl: string;
@@ -15,11 +17,16 @@ export interface SubPlatformPreset extends ProviderPreset {
   providerKey: string;
 }
 
+const WBSMODELS_BASE_URL = "https://onekey.dualseason.com/v1";
+const CLAWIMAGE_BASE_URL = "https://claw.dualseason.com/v1";
+const CLAWIMAGE_DEFAULT_MODEL_ID = "gemini-3.0-pro-image-2k";
+
 export const PROVIDER_PRESETS: Record<string, ProviderPreset> = {
-  wanboshan: { baseUrl: "https://onekey.dualseason.com", api: "openai-responses" },
+  wbsmodels: { baseUrl: WBSMODELS_BASE_URL, api: "openai-responses" },
+  clawimage: { baseUrl: CLAWIMAGE_BASE_URL, api: "openai-completions" },
 };
 
-// Moonshot 三个子平台配置
+// Moonshot sub-platform presets.
 export const MOONSHOT_SUB_PLATFORMS: Record<string, SubPlatformPreset> = {
   "moonshot-cn": { baseUrl: "https://api.moonshot.cn/v1", api: "openai-completions", providerKey: "moonshot" },
   "moonshot-ai": { baseUrl: "https://api.moonshot.ai/v1", api: "openai-completions", providerKey: "moonshot" },
@@ -48,7 +55,7 @@ const BUILTIN_SUB_PLATFORM_DEFAULTS: Record<string, string> = {
   minimax: "minimax-global",
 };
 
-// Custom tab 内置预设（国产 provider 快捷配置）
+// Built-in presets for the Custom tab (quick presets for domestic providers).
 export interface CustomProviderPreset extends ProviderPreset {
   providerKey: string;
   placeholder: string;
@@ -144,7 +151,7 @@ export function getBuiltinSubPlatform(provider: string, subPlatform?: string): S
   return platforms[subPlatform || fallback] || platforms[fallback];
 }
 
-// ── 构建 Provider 配置对象 ──
+// 鈹€鈹€ 鏋勫缓 Provider 閰嶇疆瀵硅薄 鈹€鈹€
 
 export function buildProviderConfig(
   provider: string,
@@ -156,18 +163,26 @@ export function buildProviderConfig(
   customPreset?: string
 ): Record<string, unknown> {
   const preset = PROVIDER_PRESETS[provider];
+  if (provider === "clawimage") {
+    return buildClawImageProviderConfig(
+      apiKey,
+      modelID,
+      baseURL || PROVIDER_PRESETS.clawimage.baseUrl,
+      api || PROVIDER_PRESETS.clawimage.api,
+    );
+  }
 
-  // 预设 provider 一律声明图片能力
+  // Built-in provider preset (for example wbsmodels): fixed base URL + API.
   if (preset) {
     return {
       apiKey,
-      baseUrl: preset.baseUrl,
-      api: preset.api,
+      baseUrl: baseURL || preset.baseUrl,
+      api: api || preset.api,
       models: [{ id: modelID, name: modelID, input: ["text", "image"] }],
     };
   }
 
-  // Custom 内置预设命中时，使用预设的 baseUrl 和 api（前端传了 baseURL 时优先用前端值）
+  // Custom tab preset: keep preset API type and allow optional baseURL override.
   const customPre = customPreset ? CUSTOM_PROVIDER_PRESETS[customPreset] : undefined;
   if (customPre) {
     return {
@@ -178,7 +193,7 @@ export function buildProviderConfig(
     };
   }
 
-  // Custom provider — 根据用户勾选决定是否声明图片能力
+  // Manual custom mode.
   const input = supportImage !== false ? ["text", "image"] : ["text"];
   return {
     apiKey,
@@ -188,8 +203,37 @@ export function buildProviderConfig(
   };
 }
 
-// ── Moonshot 子平台配置写入 ──
+// clawimage provider template.
 
+export function buildClawImageProviderConfig(
+  apiKey: string,
+  modelID = CLAWIMAGE_DEFAULT_MODEL_ID,
+  baseURL = CLAWIMAGE_BASE_URL,
+  apiType = "openai-completions",
+): Record<string, unknown> {
+  const resolvedModelId = modelID || CLAWIMAGE_DEFAULT_MODEL_ID;
+  return {
+    baseUrl: baseURL || CLAWIMAGE_BASE_URL,
+    apiKey,
+    headers: { "Content-Type": "application/json" },
+    auth: "token",
+    authHeader: true,
+    api: apiType || "openai-completions",
+    models: [
+      {
+        id: resolvedModelId,
+        name: resolvedModelId,
+        api: apiType || "openai-completions",
+        input: ["text", "image"],
+        reasoning: false,
+        contextWindow: 128000,
+        maxTokens: 8192,
+      },
+    ],
+  };
+}
+
+// 鈹€鈹€ Moonshot 瀛愬钩鍙伴厤缃啓?鈹€鈹€
 export function saveMoonshotConfig(
   config: any,
   apiKey: string,
@@ -212,7 +256,7 @@ export function saveSubPlatformConfig(
   }
   const providerKey = sub.providerKey;
 
-  // 所有子平台统一写法：apiKey + baseUrl + api + models 写入 providers
+  // 鎵€鏈夊瓙骞冲彴缁熶竴鍐欐硶锛歛piKey + baseUrl + api + models 鍐欏叆 providers
   config.models.providers[providerKey] = {
     apiKey,
     baseUrl: sub.baseUrl,
@@ -223,13 +267,13 @@ export function saveSubPlatformConfig(
   config.agents.defaults.model.primary = `${providerKey}/${modelID}`;
 }
 
-// ── 用户配置读写（薄封装） ──
+// 鈹€鈹€ 鐢ㄦ埛閰嶇疆璇诲啓锛堣杽灏佽?鈹€鈹€
 
 export function readUserConfig(): any {
   const configPath = resolveUserConfigPath();
   if (!fs.existsSync(configPath)) return {};
   try {
-    return JSON.parse(fs.readFileSync(configPath, "utf-8"));
+    return parseJsonText(fs.readFileSync(configPath, "utf-8"));
   } catch {
     return {};
   }
@@ -238,25 +282,31 @@ export function readUserConfig(): any {
 export function writeUserConfig(config: any): void {
   const stateDir = resolveUserStateDir();
   fs.mkdirSync(stateDir, { recursive: true });
-  // 覆盖写入前先保留一份当前可解析配置，便于用户在设置页回退。
+  // OpenClaw schema does not accept the top-level `oneclaw` key.
+  // If legacy metadata exists there, migrate it to sidecar and strip the key before write.
+  migrateEmbeddedModelRoutesToSidecar(config);
+  // Snapshot current parseable config before overwrite so users can roll back from Settings.
   backupCurrentUserConfig();
   const configPath = resolveUserConfigPath();
   fs.writeFileSync(configPath, JSON.stringify(config, null, 2), "utf-8");
 }
 
-// ── 验证函数 ──
+// 鈹€鈹€ 楠岃瘉鍑芥暟 鈹€鈹€
 
-// 万博山内置入口按 OpenAI 兼容接口验证
-export function verifyWanboshan(apiKey: string, modelID?: string): Promise<void> {
-  return verifyCustom(apiKey, PROVIDER_PRESETS.wanboshan.baseUrl, PROVIDER_PRESETS.wanboshan.api, modelID);
+// 涓囧崥灞卞唴缃叆鍙ｆ寜 OpenAI 鍏煎鎺ュ彛楠岃瘉
+export function verifyClawimage(apiKey: string, modelID?: string, baseURL?: string): Promise<void> {
+  // Do not probe image-only models via /chat/completions text payload.
+  // Validate clawimage by checking /models with the provided key.
+  void modelID;
+  return verifyOpenAIModels(apiKey, baseURL || PROVIDER_PRESETS.clawimage.baseUrl);
 }
 
-// Moonshot 子平台验证（根据子平台选择不同 URL）
+// Moonshot sub-platform verification (uses different endpoints by sub-platform).
 export function verifyMoonshot(apiKey: string, subPlatform?: string, modelID?: string): Promise<void> {
   const sub = MOONSHOT_SUB_PLATFORMS[subPlatform || "moonshot-cn"];
   const baseUrl = sub.baseUrl;
 
-  // Kimi Code 使用 Anthropic Messages 协议验证
+  // Kimi Code 浣跨敤 Anthropic Messages 鍗忚楠岃瘉
   if (subPlatform === "kimi-code") {
     return jsonRequest(`${baseUrl}/v1/messages`, {
       method: "POST",
@@ -273,7 +323,7 @@ export function verifyMoonshot(apiKey: string, subPlatform?: string, modelID?: s
     });
   }
 
-  // moonshot-cn / moonshot-ai 使用 OpenAI 兼容 /models 接口
+  // moonshot-cn / moonshot-ai 浣跨敤 OpenAI 鍏煎 /models 鎺ュ彛
   return jsonRequest(`${baseUrl}/models`, {
     headers: { Authorization: `Bearer ${apiKey}` },
   });
@@ -291,7 +341,7 @@ export function verifyMinimax(apiKey: string, subPlatform?: string, modelID?: st
   return verifyCustom(apiKey, sub.baseUrl, sub.api, modelID);
 }
 
-// 飞书应用凭据验证（通过 tenant_access_token 接口校验 appId + appSecret）
+// Feishu credential verification via tenant_access_token.
 export function verifyFeishu(appId: string, appSecret: string): Promise<void> {
   return new Promise((resolve, reject) => {
     const body = JSON.stringify({ app_id: appId, app_secret: appSecret });
@@ -312,22 +362,22 @@ export function verifyFeishu(appId: string, appSecret: string): Promise<void> {
             if (json.code === 0) {
               resolve();
             } else {
-              reject(new Error(json.msg || `飞书验证失败 (code: ${json.code})`));
+              reject(new Error(json.msg || `椋炰功楠岃瘉澶辫触 (code: ${json.code})`));
             }
           } catch {
-            reject(new Error(`飞书响应解析失败: ${data.slice(0, 200)}`));
+            reject(new Error(`椋炰功鍝嶅簲瑙ｆ瀽澶辫触: ${data.slice(0, 200)}`));
           }
         });
       }
     );
-    req.on("error", (e) => reject(new Error(`网络错误: ${e.message}`)));
-    req.on("timeout", () => { req.destroy(); reject(new Error("请求超时")); });
+    req.on("error", (e) => reject(new Error(`Network error: ${e.message}`)));
+    req.on("timeout", () => { req.destroy(); reject(new Error("Request timeout")); });
     req.write(body);
     req.end();
   });
 }
 
-// QQ Bot 凭据验证（通过 getAppAccessToken 接口校验 appId + clientSecret）。
+// QQ Bot credential verification via getAppAccessToken.
 export function verifyQqbot(appId: string, clientSecret: string): Promise<void> {
   return new Promise((resolve, reject) => {
     const body = JSON.stringify({ appId, clientSecret });
@@ -348,22 +398,22 @@ export function verifyQqbot(appId: string, clientSecret: string): Promise<void> 
             if (typeof json.access_token === "string" && json.access_token.trim()) {
               resolve();
             } else {
-              reject(new Error(json.message || json.msg || `QQ Bot 验证失败: ${data.slice(0, 200)}`));
+              reject(new Error(json.message || json.msg || `QQ Bot 楠岃瘉澶辫触: ${data.slice(0, 200)}`));
             }
           } catch {
-            reject(new Error(`QQ Bot 响应解析失败: ${data.slice(0, 200)}`));
+            reject(new Error(`QQ Bot 鍝嶅簲瑙ｆ瀽澶辫触: ${data.slice(0, 200)}`));
           }
         });
       }
     );
-    req.on("error", (e) => reject(new Error(`网络错误: ${e.message}`)));
-    req.on("timeout", () => { req.destroy(); reject(new Error("请求超时")); });
+    req.on("error", (e) => reject(new Error(`Network error: ${e.message}`)));
+    req.on("timeout", () => { req.destroy(); reject(new Error("Request timeout")); });
     req.write(body);
     req.end();
   });
 }
 
-// 钉钉应用凭据验证（通过 accessToken 接口校验 clientId/AppKey + clientSecret/AppSecret）。
+// DingTalk credential verification via accessToken.
 export function verifyDingtalk(clientId: string, clientSecret: string): Promise<void> {
   return new Promise((resolve, reject) => {
     const body = JSON.stringify({ appKey: clientId, appSecret: clientSecret });
@@ -390,36 +440,48 @@ export function verifyDingtalk(clientId: string, clientSecret: string): Promise<
                 json.message ||
                 json.msg ||
                 json.errmsg ||
-                `钉钉验证失败: ${data.slice(0, 200)}`
+                `閽夐拤楠岃瘉澶辫触: ${data.slice(0, 200)}`
               )
             );
           } catch {
-            reject(new Error(`钉钉响应解析失败: ${data.slice(0, 200)}`));
+            reject(new Error(`閽夐拤鍝嶅簲瑙ｆ瀽澶辫触: ${data.slice(0, 200)}`));
           }
         });
       }
     );
-    req.on("error", (e) => reject(new Error(`网络错误: ${e.message}`)));
-    req.on("timeout", () => { req.destroy(); reject(new Error("请求超时")); });
+    req.on("error", (e) => reject(new Error(`Network error: ${e.message}`)));
+    req.on("timeout", () => { req.destroy(); reject(new Error("Request timeout")); });
     req.write(body);
     req.end();
   });
 }
 
-// Ollama 本地验证（GET /api/tags 检查服务是否运行）
+// Ollama 鏈湴楠岃瘉锛圙ET /api/tags 妫€鏌ユ湇鍔℃槸鍚﹁繍琛岋級
 export async function verifyOllama(baseURL?: string): Promise<void> {
   const base = (baseURL || "http://localhost:11434").replace(/\/$/, "");
   await jsonRequest(`${base}/api/tags`, {});
 }
 
-// Custom provider 验证（根据 API 类型发真实 chat 请求，而非 /models）
+// Custom provider verification by issuing a real chat/request call (not /models).
 export async function verifyCustom(apiKey: string, baseURL?: string, apiType?: string, modelID?: string): Promise<void> {
-  if (!baseURL) throw new Error("Custom provider 需要 Base URL");
-  if (!modelID) throw new Error("Custom provider 需要 Model ID");
+  if (!baseURL) throw new Error("Custom provider requires Base URL");
+  if (!modelID) throw new Error("Custom provider requires Model ID");
   const base = baseURL.replace(/\/$/, "");
+  const hasTrailingV1 = /\/v1$/i.test(base);
+  const anthropicEndpoint = hasTrailingV1 ? `${base}/messages` : `${base}/v1/messages`;
+  const responsesEndpoint = hasTrailingV1 ? `${base}/responses` : `${base}/v1/responses`;
+  const effectiveApiType = apiType || "openai-completions";
 
-  if (apiType === "anthropic-messages") {
-    await jsonRequest(`${base}/v1/messages`, {
+  let endpoint = "";
+  let requestPayload: {
+    method?: string;
+    headers?: Record<string, string>;
+    body?: string;
+  } = {};
+
+  if (effectiveApiType === "anthropic-messages") {
+    endpoint = anthropicEndpoint;
+    requestPayload = {
       method: "POST",
       headers: {
         "User-Agent": UA_ANTHROPIC,
@@ -432,10 +494,10 @@ export async function verifyCustom(apiKey: string, baseURL?: string, apiType?: s
         max_tokens: 1,
         messages: [{ role: "user", content: "hi" }],
       }),
-    });
-  } else if (apiType === "openai-responses") {
-    // OpenAI Responses API（/v1/responses）
-    await jsonRequest(`${base}/v1/responses`, {
+    };
+  } else if (effectiveApiType === "openai-responses") {
+    endpoint = responsesEndpoint;
+    requestPayload = {
       method: "POST",
       headers: {
         "User-Agent": UA_OPENAI,
@@ -445,11 +507,13 @@ export async function verifyCustom(apiKey: string, baseURL?: string, apiType?: s
       body: JSON.stringify({
         model: modelID,
         input: "hi",
+        // Keep verification payload aligned with runtime OpenAI Responses calls.
+        store: false,
       }),
-    });
+    };
   } else {
-    // openai-completions（默认）
-    await jsonRequest(`${base}/chat/completions`, {
+    endpoint = `${base}/chat/completions`;
+    requestPayload = {
       method: "POST",
       headers: {
         "User-Agent": UA_OPENAI,
@@ -461,12 +525,33 @@ export async function verifyCustom(apiKey: string, baseURL?: string, apiType?: s
         max_tokens: 1,
         messages: [{ role: "user", content: "hi" }],
       }),
-    });
+    };
+  }
+
+  try {
+    await jsonRequest(endpoint, requestPayload);
+  } catch (err: any) {
+    const detail = err?.message || String(err);
+    throw new Error(`[verify:${effectiveApiType}] ${endpoint} model=${modelID}: ${detail}`);
   }
 }
 
-// ── 统一验证入口（根据 provider 名称分派） ──
+// 鈹€鈹€ 缁熶竴楠岃瘉鍏ュ彛锛堟牴?provider 鍚嶇О鍒嗘淳?鈹€鈹€
 
+
+export function verifyOpenAIModels(apiKey: string, baseURL: string): Promise<void> {
+  const base = baseURL.replace(/\/$/, "");
+  const hasTrailingV1 = /\/v1$/i.test(base);
+  const endpoint = hasTrailingV1 ? `${base}/models` : `${base}/v1/models`;
+  return jsonRequest(endpoint, {
+    method: "GET",
+    headers: {
+      "User-Agent": UA_OPENAI,
+      Authorization: `Bearer ${apiKey}`,
+      "content-type": "application/json",
+    },
+  });
+}
 export async function verifyProvider(params: {
   provider: string;
   apiKey?: string;
@@ -495,8 +580,16 @@ export async function verifyProvider(params: {
   } = params;
   try {
     switch (provider) {
-      case "wanboshan":
-        await verifyWanboshan(apiKey!, modelID);
+      case "wbsmodels":
+        await verifyCustom(
+          apiKey!,
+          baseURL || PROVIDER_PRESETS.wbsmodels.baseUrl,
+          apiType || PROVIDER_PRESETS.wbsmodels.api,
+          modelID,
+        );
+        break;
+      case "clawimage":
+        await verifyClawimage(apiKey!, modelID, baseURL);
         break;
       case "moonshot":
         await verifyMoonshot(apiKey!, subPlatform, modelID);
@@ -509,12 +602,12 @@ export async function verifyProvider(params: {
         break;
       case "custom": {
         const customPre = customPreset ? CUSTOM_PROVIDER_PRESETS[customPreset] : undefined;
-        // Ollama 本地验证：GET /api/tags 检查连通性，无需 API Key
+        // Ollama 鏈湴楠岃瘉锛欸ET /api/tags 妫€鏌ヨ繛閫氭€э紝鏃犻渶 API Key
         if (customPre?.keyOptional) {
           await verifyOllama(baseURL || customPre.baseUrl);
           break;
         }
-        // 内置预设命中时，使用预设的 baseUrl 和 api 进行验证（前端传了 baseURL 时优先）
+        // 鍐呯疆棰勮鍛戒腑鏃讹紝浣跨敤棰勮?baseUrl ?api 杩涜楠岃瘉锛堝墠绔紶?baseURL 鏃朵紭鍏堬級
         const effectiveBaseURL = baseURL || (customPre ? customPre.baseUrl : undefined);
         const effectiveApiType = customPre ? customPre.api : apiType;
         await verifyCustom(apiKey!, effectiveBaseURL, effectiveApiType, modelID);
@@ -530,7 +623,7 @@ export async function verifyProvider(params: {
         await verifyDingtalk(clientId!, clientSecret!);
         break;
       default:
-        return { success: false, message: `未知 Provider: ${provider}` };
+        return { success: false, message: `鏈煡 Provider: ${provider}` };
     }
     return { success: true };
   } catch (err: any) {
@@ -538,9 +631,9 @@ export async function verifyProvider(params: {
   }
 }
 
-// ── HTTP 请求工具 ──
+// 鈹€鈹€ HTTP 璇锋眰宸ュ叿 鈹€鈹€
 
-// 与 runtime SDK 保持一致的 User-Agent（见 node_modules/@anthropic-ai/sdk 和 openai）
+// Keep User-Agent aligned with runtime SDK behavior.
 const UA_ANTHROPIC = "Anthropic/JS 0.73.0";
 const UA_OPENAI = "OpenAI/JS 6.10.0";
 
@@ -569,17 +662,17 @@ export function jsonRequest(
           if (code >= 200 && code < 300) {
             resolve();
           } else if (code === 401 || code === 403) {
-            reject(new Error(`API Key 无效 (${code})`));
+            reject(new Error(`API key is invalid (${code})`));
           } else {
-            reject(new Error(`请求失败 (${code}): ${body.slice(0, 200)}`));
+            reject(new Error(`HTTP ${code}: ${body.slice(0, 200)}`));
           }
         });
       }
     );
-    req.on("error", (e) => reject(new Error(`网络错误: ${e.message}`)));
+    req.on("error", (e) => reject(new Error(`Network error: ${e.message}`)));
     req.on("timeout", () => {
       req.destroy();
-      reject(new Error("请求超时"));
+      reject(new Error("Request timeout"));
     });
     if (opts.body) req.write(opts.body);
     req.end();

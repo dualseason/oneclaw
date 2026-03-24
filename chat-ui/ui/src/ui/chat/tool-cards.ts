@@ -33,7 +33,12 @@ export function extractToolCards(message: unknown): ToolCard[] {
     }
     const text = extractToolText(item);
     const name = typeof item.name === "string" ? item.name : "tool";
-    cards.push({ kind: "result", name, text });
+    cards.push({
+      kind: "result",
+      name,
+      text,
+      imageCount: countRenderableImages(item),
+    });
   }
 
   if (isToolResultMessage(message) && !cards.some((card) => card.kind === "result")) {
@@ -42,7 +47,12 @@ export function extractToolCards(message: unknown): ToolCard[] {
       (typeof m.tool_name === "string" && m.tool_name) ||
       "tool";
     const text = extractTextCached(message) ?? undefined;
-    cards.push({ kind: "result", name, text });
+    cards.push({
+      kind: "result",
+      name,
+      text,
+      imageCount: countRenderableImages(content),
+    });
   }
 
   return cards;
@@ -52,17 +62,33 @@ export function renderToolCardSidebar(card: ToolCard, onOpenSidebar?: (content: 
   const display = resolveToolDisplay({ name: card.name, args: card.args });
   const detail = formatToolDetail(display);
   const hasText = Boolean(card.text?.trim());
+  const imageCount = typeof card.imageCount === "number" ? Math.max(0, Math.floor(card.imageCount)) : 0;
+  const hasImages = imageCount > 0;
+  const isCall = card.kind === "call";
+  const statusText = isCall
+    ? "Called"
+    : hasImages
+      ? `${imageCount} image${imageCount === 1 ? "" : "s"}`
+      : "Completed";
 
-  const canClick = Boolean(onOpenSidebar);
+  const canClick = Boolean(onOpenSidebar) && (hasText || isCall);
   const handleClick = canClick
     ? () => {
+        if (isCall) {
+          onOpenSidebar!(buildToolCallSidebar(display.label, detail, card.args));
+          return;
+        }
         if (hasText) {
           onOpenSidebar!(formatToolOutputForSidebar(card.text!));
           return;
         }
         const info = `## ${display.label}\n\n${
           detail ? `**Command:** \`${detail}\`\n\n` : ""
-        }*No output — tool completed successfully.*`;
+        }*${
+          hasImages
+            ? `Completed with ${imageCount} image output${imageCount === 1 ? "" : "s"}. View the image${imageCount === 1 ? "" : "s"} in the chat transcript.`
+            : "Completed with no text output."
+        }*`;
         onOpenSidebar!(info);
       }
     : undefined;
@@ -95,18 +121,14 @@ export function renderToolCardSidebar(card: ToolCard, onOpenSidebar?: (content: 
           <span class="chat-tool-card__icon">${icons[display.icon]}</span>
           <span>${display.label}</span>
         </div>
-        ${
-          canClick
-            ? html`<span class="chat-tool-card__action">${hasText ? "View" : ""} ${icons.check}</span>`
-            : nothing
-        }
+        ${canClick ? html`<span class="chat-tool-card__action">View ${icons.check}</span>` : nothing}
         ${isEmpty && !canClick ? html`<span class="chat-tool-card__status">${icons.check}</span>` : nothing}
       </div>
       ${detail ? html`<div class="chat-tool-card__detail">${detail}</div>` : nothing}
       ${
         isEmpty
           ? html`
-              <div class="chat-tool-card__status-text muted">Completed</div>
+              <div class="chat-tool-card__status-text muted">${statusText}</div>
             `
           : nothing
       }
@@ -153,4 +175,67 @@ function extractToolText(item: Record<string, unknown>): string | undefined {
     return item.content;
   }
   return undefined;
+}
+
+function countRenderableImages(value: unknown): number {
+  if (Array.isArray(value)) {
+    return value.reduce((total, item) => total + countRenderableImages(item), 0);
+  }
+  if (typeof value !== "object" || value === null) {
+    return 0;
+  }
+
+  const item = value as Record<string, unknown>;
+  const kind = (typeof item.type === "string" ? item.type : "").toLowerCase();
+  if (kind === "image") {
+    const source = item.source as Record<string, unknown> | undefined;
+    if (source?.type === "base64" && typeof source.data === "string" && source.data.trim()) {
+      return 1;
+    }
+    if (typeof item.data === "string" && item.data.trim()) {
+      return 1;
+    }
+    if (typeof item.url === "string" && item.url.trim()) {
+      return 1;
+    }
+  }
+  if (kind === "image_url") {
+    const imageUrl = item.image_url as Record<string, unknown> | undefined;
+    if (typeof imageUrl?.url === "string" && imageUrl.url.trim()) {
+      return 1;
+    }
+  }
+  if (Array.isArray(item.content)) {
+    return countRenderableImages(item.content);
+  }
+  return 0;
+}
+
+function buildToolCallSidebar(label: string, detail: string | undefined, args: unknown): string {
+  const parts = [`## ${label}`];
+  if (detail) {
+    parts.push(`**Command:** \`${detail}\``);
+  }
+  if (args !== undefined) {
+    const serialized = formatToolArgs(args);
+    if (serialized) {
+      parts.push("**Arguments**");
+      parts.push(`\`\`\`json\n${serialized}\n\`\`\``);
+    }
+  }
+  return parts.join("\n\n");
+}
+
+function formatToolArgs(args: unknown): string {
+  if (args == null) {
+    return "";
+  }
+  if (typeof args === "string") {
+    return args.trim();
+  }
+  try {
+    return JSON.stringify(args, null, 2);
+  } catch {
+    return String(args);
+  }
 }

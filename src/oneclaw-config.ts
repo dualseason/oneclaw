@@ -2,6 +2,8 @@ import * as fs from "fs";
 import * as path from "path";
 import * as crypto from "crypto";
 import { resolveUserStateDir, resolveUserConfigPath } from "./constants";
+import { parseJsonText } from "./json-utils";
+import type { ModelRole, ModelRouteConfig } from "./model-routes";
 
 // ── 类型定义 ──
 
@@ -11,6 +13,7 @@ export interface OneclawConfig {
   skillStore?: {
     registryUrl?: string;
   };
+  modelRoutes?: Partial<Record<ModelRole, ModelRouteConfig>>;
 }
 
 // 四种归属状态
@@ -43,7 +46,7 @@ function resolveSkillStoreConfigPath(): string {
 export function readOneclawConfig(): OneclawConfig | null {
   try {
     const raw = fs.readFileSync(resolveOneclawConfigPath(), "utf-8");
-    const parsed = JSON.parse(raw);
+    const parsed = parseJsonText(raw);
     if (!parsed || typeof parsed !== "object") return null;
     return parsed as OneclawConfig;
   } catch {
@@ -94,7 +97,7 @@ export function migrateFromLegacy(): OneclawConfig {
   let setupCompletedAt: string | undefined;
   try {
     const raw = fs.readFileSync(resolveUserConfigPath(), "utf-8");
-    const config = JSON.parse(raw);
+    const config = parseJsonText<any>(raw);
     if (config?.wizard?.lastRunAt) {
       setupCompletedAt = config.wizard.lastRunAt;
     }
@@ -104,7 +107,7 @@ export function migrateFromLegacy(): OneclawConfig {
   let skillStore: OneclawConfig["skillStore"];
   const skillStorePath = resolveSkillStoreConfigPath();
   try {
-    const raw = JSON.parse(fs.readFileSync(skillStorePath, "utf-8"));
+    const raw = parseJsonText<any>(fs.readFileSync(skillStorePath, "utf-8"));
     if (raw?.registryUrl) {
       skillStore = { registryUrl: raw.registryUrl };
     }

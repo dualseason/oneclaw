@@ -6,9 +6,13 @@ import {
   resolveUserConfigPath,
   resolveUserStateDir,
 } from "./constants";
+import { parseJsonText, stripUtf8Bom } from "./json-utils";
+import { migrateEmbeddedModelRoutesToSidecar } from "./model-routes";
 
 const BACKUP_FILE_PREFIX = "openclaw-";
 const BACKUP_FILE_EXT = ".json";
+const RESET_BACKUP_FILE_PREFIX = "openclaw.json.before-reset-";
+const RESET_BACKUP_FILE_EXT = ".bak";
 const MAX_BACKUP_FILES = 10;
 const SETUP_BASELINE_FILE = "openclaw-setup-baseline.json";
 
@@ -33,6 +37,11 @@ export interface UserConfigHealth {
   parseError?: string;
 }
 
+export interface ResetConfigResult {
+  configPath: string;
+  backupPath: string | null;
+}
+
 // 检查当前 openclaw.json 的可解析性，供启动前诊断使用。
 export function inspectUserConfigHealth(): UserConfigHealth {
   const configPath = resolveUserConfigPath();
@@ -40,7 +49,7 @@ export function inspectUserConfigHealth(): UserConfigHealth {
 
   try {
     const raw = fs.readFileSync(configPath, "utf-8");
-    JSON.parse(raw);
+    parseJsonText(raw);
     return { exists: true, validJson: true };
   } catch (err: any) {
     return {
@@ -49,6 +58,22 @@ export function inspectUserConfigHealth(): UserConfigHealth {
       parseError: err?.message ?? "JSON parse failed",
     };
   }
+}
+
+// 重置前先原样备份 openclaw.json，再清空为 {}（无 BOM），用于“可回滚 + 干净重启”。
+export function backupThenClearUserConfig(): ResetConfigResult {
+  const stateDir = resolveUserStateDir();
+  const configPath = resolveUserConfigPath();
+  fs.mkdirSync(stateDir, { recursive: true });
+
+  let backupPath: string | null = null;
+  if (fs.existsSync(configPath)) {
+    backupPath = buildResetBackupPath(stateDir);
+    fs.copyFileSync(configPath, backupPath);
+  }
+
+  fs.writeFileSync(configPath, "{}\n", "utf-8");
+  return { configPath, backupPath };
 }
 
 // 在覆盖写入配置前自动备份当前文件（仅备份可解析 JSON）。
@@ -190,8 +215,8 @@ function readValidConfigRaw(filePath: string): string | null {
 
   try {
     const raw = fs.readFileSync(filePath, "utf-8");
-    JSON.parse(raw);
-    return raw;
+    parseJsonText(raw);
+    return stripUtf8Bom(raw);
   } catch {
     return null;
   }
@@ -201,7 +226,14 @@ function readValidConfigRaw(filePath: string): string | null {
 function writeConfigRaw(raw: string): void {
   const stateDir = resolveUserStateDir();
   fs.mkdirSync(stateDir, { recursive: true });
-  fs.writeFileSync(resolveUserConfigPath(), raw, "utf-8");
+  const normalizedRaw = stripUtf8Bom(raw);
+  const parsed = parseJsonText<any>(normalizedRaw);
+  if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+    migrateEmbeddedModelRoutesToSidecar(parsed);
+    fs.writeFileSync(resolveUserConfigPath(), JSON.stringify(parsed, null, 2), "utf-8");
+    return;
+  }
+  fs.writeFileSync(resolveUserConfigPath(), normalizedRaw, "utf-8");
 }
 
 // 确保备份目录存在，避免首次保存时写文件失败。
@@ -225,6 +257,21 @@ function buildBackupFileName(backupDir: string): string {
   }
 
   return `${base}-${Date.now()}${BACKUP_FILE_EXT}`;
+}
+
+function buildResetBackupPath(stateDir: string): string {
+  const stamp = formatTimestamp(new Date());
+  const base = `${RESET_BACKUP_FILE_PREFIX}${stamp}`;
+  const primary = path.join(stateDir, `${base}${RESET_BACKUP_FILE_EXT}`);
+  if (!fs.existsSync(primary)) return primary;
+
+  for (let i = 1; i < 100; i++) {
+    const suffix = String(i).padStart(2, "0");
+    const candidate = path.join(stateDir, `${base}-${suffix}${RESET_BACKUP_FILE_EXT}`);
+    if (!fs.existsSync(candidate)) return candidate;
+  }
+
+  return path.join(stateDir, `${base}-${Date.now()}${RESET_BACKUP_FILE_EXT}`);
 }
 
 // 统一校验备份文件名，阻断路径穿越与非备份文件访问。

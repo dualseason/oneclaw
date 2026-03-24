@@ -1,5 +1,6 @@
 import type { GatewayBrowserClient } from "../gateway.ts";
 import type { SkillStatusReport } from "../types.ts";
+import { filterHiddenSkillStatusReport } from "../skill-visibility.ts";
 
 export type AgentSkillsState = {
   client: GatewayBrowserClient | null;
@@ -22,7 +23,7 @@ export async function loadAgentSkills(state: AgentSkillsState, agentId: string) 
   try {
     const res = await state.client.request("skills.status", { agentId });
     if (res) {
-      state.agentSkillsReport = res as SkillStatusReport;
+      state.agentSkillsReport = filterHiddenSkillStatusReport(res as SkillStatusReport) ?? null;
       state.agentSkillsAgentId = agentId;
     }
   } catch (err) {

@@ -43,5 +43,7 @@ export type ToolCard = {
   args?: unknown;
   output?: unknown;
   error?: string;
+  text?: string;
+  imageCount?: number;
   [key: string]: unknown;
 };

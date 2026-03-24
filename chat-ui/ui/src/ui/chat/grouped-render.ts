@@ -39,6 +39,11 @@ function extractImages(message: unknown): ImageBlock[] {
           // If data is already a data URL, use it directly
           const url = data.startsWith("data:") ? data : `data:${mediaType};base64,${data}`;
           images.push({ url });
+        } else if (typeof b.data === "string") {
+          const mediaType = (b.mimeType as string) || "image/png";
+          const data = b.data;
+          const url = data.startsWith("data:") ? data : `data:${mediaType};base64,${data}`;
+          images.push({ url });
         } else if (typeof b.url === "string") {
           images.push({ url: b.url });
         }
@@ -252,7 +257,7 @@ function renderGroupedMessage(
     .filter(Boolean)
     .join(" ");
 
-  if (!markdown && hasToolCards && isToolResult) {
+  if (!markdown && hasToolCards && isToolResult && !hasImages) {
     return html`${toolCards.map((card) => renderToolCardSidebar(card, onOpenSidebar))}`;
   }
 

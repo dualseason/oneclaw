@@ -12,6 +12,7 @@
 const fs = require("fs");
 const path = require("path");
 const https = require("https");
+const crypto = require("crypto");
 const { execSync } = require("child_process");
 const {
   normalizeSemverText,
@@ -29,6 +30,67 @@ const KIMI_SEARCH_CACHE_FILE = "openclaw-kimi-search-0.1.2.tgz";
 const QQBOT_PACKAGE_NAME = "@sliverp/qqbot";
 const DINGTALK_CONNECTOR_PACKAGE_NAME = "@dingtalk-real-ai/dingtalk-connector";
 const WECOM_PLUGIN_PACKAGE_NAME = "@wecom/wecom-openclaw-plugin";
+const ONECLAW_IMAGE_TOOL_PACKAGE_NAME = "@oneclaw/image-generation-tool";
+const FFMPEG_INSTALLER_PACKAGE_NAME = "@ffmpeg-installer/ffmpeg";
+const FFMPEG_INSTALLER_DEFAULT_SOURCE = "1.1.0";
+let cachedProjectPackageJson = null;
+
+function readProjectPackageJson() {
+  if (cachedProjectPackageJson !== null) {
+    return cachedProjectPackageJson;
+  }
+  const pkgPath = path.join(ROOT, "package.json");
+  try {
+    const parsed = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
+    cachedProjectPackageJson = parsed && typeof parsed === "object" ? parsed : {};
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    log(`读取 package.json 失败，忽略固定 openclaw 版本配置: ${message}`);
+    cachedProjectPackageJson = {};
+  }
+  return cachedProjectPackageJson;
+}
+
+function readPinnedOpenclawPackageSource() {
+  const pkg = readProjectPackageJson();
+  const oneclawConfig = pkg && typeof pkg.oneclaw === "object" ? pkg.oneclaw : null;
+  if (!oneclawConfig) return "";
+  const raw = String(oneclawConfig.openclawPackageSource || "").trim();
+  if (!raw) return "";
+  return normalizeSemverText(raw);
+}
+
+function readPinnedFfmpegInstallerSource() {
+  const pkg = readProjectPackageJson();
+  const oneclawConfig = pkg && typeof pkg.oneclaw === "object" ? pkg.oneclaw : null;
+  if (!oneclawConfig) return "";
+  const raw = String(oneclawConfig.ffmpegInstallerPackageSource || "").trim();
+  return raw;
+}
+
+function createDirectoryFingerprint(dirPath) {
+  const hash = crypto.createHash("sha256");
+  const walk = (currentDir) => {
+    const entries = fs
+      .readdirSync(currentDir, { withFileTypes: true })
+      .filter((entry) => entry.name !== "node_modules" && entry.name !== ".git")
+      .sort((a, b) => a.name.localeCompare(b.name));
+    for (const entry of entries) {
+      const fullPath = path.join(currentDir, entry.name);
+      const relativePath = path.relative(dirPath, fullPath).replace(/\\/g, "/");
+      if (entry.isDirectory()) {
+        hash.update(`dir:${relativePath}\n`);
+        walk(fullPath);
+        continue;
+      }
+      hash.update(`file:${relativePath}\n`);
+      hash.update(fs.readFileSync(fullPath));
+      hash.update("\n");
+    }
+  };
+  walk(dirPath);
+  return hash.digest("hex").slice(0, 12);
+}
 
 // 计算目标产物的唯一标识
 function getTargetId(platform, arch) {
@@ -45,6 +107,8 @@ function getTargetPaths(platform, arch) {
     runtimeDir: path.join(targetBase, "runtime"),
     gatewayDir: path.join(targetBase, "gateway"),
     iconPath: path.join(targetBase, "app-icon.png"),
+    windowIconIcoPath: path.join(targetBase, "icon.ico"),
+    windowIconPngPath: path.join(targetBase, "icon.png"),
     analyticsConfigPath: path.join(targetBase, "analytics-config.json"),
   };
 }
@@ -521,6 +585,16 @@ function getPackageSource() {
     };
   }
 
+  // package.json 固定版本（默认稳定构建）
+  const pinnedSource = readPinnedOpenclawPackageSource();
+  if (pinnedSource) {
+    log(`使用 package.json 固定 openclaw 版本: ${pinnedSource}`);
+    return {
+      source: pinnedSource,
+      stampSource: `pinned:openclaw@${pinnedSource}`,
+    };
+  }
+
   // 查询 npm registry 获取 openclaw latest 版本
   const latestVersion = readRemoteLatestVersion("openclaw", {
     cwd: ROOT,
@@ -632,6 +706,141 @@ function getWecomPluginPackageSource() {
     source: latestVersion,
     stampSource: `remote:${WECOM_PLUGIN_PACKAGE_NAME}@${latestVersion}`,
   };
+}
+
+function getOneclawImageToolPackageSource() {
+  const explicitSource = readEnvText("ONECLAW_IMAGE_TOOL_PACKAGE_SOURCE");
+  if (explicitSource) {
+    log(`使用 ONECLAW_IMAGE_TOOL_PACKAGE_SOURCE 指定来源: ${explicitSource}`);
+    return {
+      source: explicitSource,
+      stampSource: `explicit:${ONECLAW_IMAGE_TOOL_PACKAGE_NAME}@${explicitSource}`,
+    };
+  }
+
+  const packageDir = path.join(ROOT, "plugins", "oneclaw-image-generation-tool");
+  if (!fs.existsSync(packageDir)) {
+    die(`本地图片生成插件目录不存在: ${packageDir}`);
+  }
+  const fingerprint = createDirectoryFingerprint(packageDir);
+  const source = `file:${packageDir.replace(/\\/g, "/")}`;
+  return {
+    source,
+    stampSource: `workspace:${ONECLAW_IMAGE_TOOL_PACKAGE_NAME}@${packageDir}#${fingerprint}`,
+  };
+}
+
+function getFfmpegInstallerPackageSource() {
+  const explicitSource = readEnvText("ONECLAW_FFMPEG_INSTALLER_PACKAGE_SOURCE");
+  if (explicitSource) {
+    log(`使用 ONECLAW_FFMPEG_INSTALLER_PACKAGE_SOURCE 指定来源: ${explicitSource}`);
+    return {
+      source: explicitSource,
+      stampSource: `explicit:${FFMPEG_INSTALLER_PACKAGE_NAME}@${explicitSource}`,
+    };
+  }
+
+  const pinnedSource = readPinnedFfmpegInstallerSource();
+  if (pinnedSource) {
+    log(`使用 package.json 固定 ffmpeg installer 版本: ${pinnedSource}`);
+    return {
+      source: pinnedSource,
+      stampSource: `pinned:${FFMPEG_INSTALLER_PACKAGE_NAME}@${pinnedSource}`,
+    };
+  }
+
+  return {
+    source: FFMPEG_INSTALLER_DEFAULT_SOURCE,
+    stampSource: `default:${FFMPEG_INSTALLER_PACKAGE_NAME}@${FFMPEG_INSTALLER_DEFAULT_SOURCE}`,
+  };
+}
+
+function resolveBundledFfmpegTarget(opts) {
+  if (opts.platform === "win32" && opts.arch === "arm64") {
+    return {
+      packagePlatform: "win32",
+      packageArch: "x64",
+      packageId: "win32-x64",
+      binaryName: "ffmpeg.exe",
+      fallback: true,
+    };
+  }
+
+  return {
+    packagePlatform: opts.platform,
+    packageArch: opts.arch,
+    packageId: `${opts.platform}-${opts.arch}`,
+    binaryName: opts.platform === "win32" ? "ffmpeg.exe" : "ffmpeg",
+    fallback: false,
+  };
+}
+
+function installBundledFfmpeg(opts, runtimeDir, targetId) {
+  const sourceInfo = getFfmpegInstallerPackageSource();
+  const resolved = resolveBundledFfmpegTarget(opts);
+  const stampPath = path.join(runtimeDir, ".ffmpeg-stamp");
+  const binaryPath = path.join(runtimeDir, resolved.binaryName);
+  const targetStamp =
+    `${opts.platform}-${opts.arch}|${resolved.packageId}|${sourceInfo.stampSource}`;
+
+  const cachedStamp = readGatewayStamp(stampPath);
+  if (fs.existsSync(binaryPath) && cachedStamp === targetStamp) {
+    log(`ffmpeg 已就绪且平台/来源匹配 (${targetStamp})，跳过安装`);
+    return;
+  }
+
+  if (resolved.fallback) {
+    log(`win32-arm64 当前回退使用 ${resolved.packageId} 的 ffmpeg 二进制`);
+  }
+
+  const tmpDir = createExtractTmpDir(TARGETS_ROOT, `${targetId}_ffmpeg`);
+  try {
+    fs.writeFileSync(
+      path.join(tmpDir, "package.json"),
+      JSON.stringify({
+        private: true,
+        dependencies: {
+          [FFMPEG_INSTALLER_PACKAGE_NAME]: sourceInfo.source,
+        },
+      }, null, 2),
+    );
+
+    execSync(
+      `npm install --omit=dev --ignore-scripts --no-package-lock --os=${resolved.packagePlatform} --cpu=${resolved.packageArch}`,
+      {
+        cwd: tmpDir,
+        stdio: "inherit",
+        env: buildNpmInstallEnv({
+          npm_config_os: resolved.packagePlatform,
+          npm_config_cpu: resolved.packageArch,
+        }),
+      },
+    );
+
+    const installedBinaryPath = path.join(
+      tmpDir,
+      "node_modules",
+      "@ffmpeg-installer",
+      resolved.packageId,
+      resolved.binaryName,
+    );
+    if (!fs.existsSync(installedBinaryPath)) {
+      die(`未找到 ffmpeg 二进制: ${installedBinaryPath}`);
+    }
+
+    ensureDir(runtimeDir);
+    safeUnlink(binaryPath);
+    fs.copyFileSync(installedBinaryPath, binaryPath);
+    try {
+      fs.chmodSync(binaryPath, 0o755);
+    } catch {
+      // ignore chmod failures on Windows
+    }
+    fs.writeFileSync(stampPath, targetStamp);
+    log(`已内置 ffmpeg: ${path.relative(ROOT, binaryPath)} (${resolved.packageId})`);
+  } finally {
+    rmDir(tmpDir);
+  }
 }
 
 // 读取 gateway 依赖平台戳
@@ -768,6 +977,15 @@ function getDirSize(dir) {
   return total;
 }
 
+function buildNpmInstallEnv(extra = {}) {
+  return {
+    ...process.env,
+    NODE_ENV: "production",
+    npm_config_cache: path.join(ROOT, ".cache", "npm"),
+    ...extra,
+  };
+}
+
 // 清理 pdf-parse 冗余的 pdf.js 版本（只保留最新版，节省约 13 MB）
 function prunePdfParseRedundantVersions(nmDir) {
   const pdfJsDir = path.join(nmDir, "pdf-parse", "lib", "pdf.js");
@@ -897,6 +1115,7 @@ function installDependencies(opts, gatewayDir) {
     pruneLlamaPackages(nmDir);
     pruneDanglingBinLinks(nmDir);
     assertNativeDepsMatchTarget(nmDir, opts.platform, opts.arch);
+    patchCustomResponsesOpenclawArtifacts(gatewayDir);
     patchWindowsOpenclawArtifacts(gatewayDir, opts.platform);
     return;
   }
@@ -929,14 +1148,18 @@ function installDependencies(opts, gatewayDir) {
   execSync(`npm install --omit=dev --install-links --legacy-peer-deps --os=${opts.platform} --cpu=${opts.arch}`, {
     cwd: gatewayDir,
     stdio: "inherit",
-    env: {
-      ...process.env,
-      NODE_ENV: "production",
+    env: buildNpmInstallEnv({
       npm_config_os: opts.platform,
       npm_config_cpu: opts.arch,
       // 避免 node-llama-cpp 在 cross-build 时执行 postinstall 下载/本地编译
       NODE_LLAMA_CPP_SKIP_DOWNLOAD: "true",
-    },
+      // 将 git@github.com / ssh://git@github.com 重写为 https，避免构建机缺少 SSH key 导致 npm 安装失败
+      GIT_CONFIG_COUNT: "2",
+      GIT_CONFIG_KEY_0: "url.https://github.com/.insteadOf",
+      GIT_CONFIG_VALUE_0: "ssh://git@github.com/",
+      GIT_CONFIG_KEY_1: "url.https://github.com/.insteadOf",
+      GIT_CONFIG_VALUE_1: "git@github.com:",
+    }),
   });
 
   log("依赖安装完成，开始裁剪 node_modules...");
@@ -946,9 +1169,41 @@ function installDependencies(opts, gatewayDir) {
   pruneLlamaPackages(nmDir);
   pruneDanglingBinLinks(nmDir);
   assertNativeDepsMatchTarget(nmDir, opts.platform, opts.arch);
+  patchCustomResponsesOpenclawArtifacts(gatewayDir);
   patchWindowsOpenclawArtifacts(gatewayDir, opts.platform);
   fs.writeFileSync(stampPath, targetStamp);
   log("node_modules 裁剪完成");
+}
+
+function patchCustomResponsesOpenclawArtifacts(gatewayDir) {
+  const distDir = path.join(gatewayDir, "node_modules", "openclaw", "dist");
+  if (!fs.existsSync(distDir)) {
+    die(`openclaw dist 目录不存在，无法应用 Responses 兼容补丁: ${distDir}`);
+  }
+
+  const targetLine = "const prevResponseId = session.manager.previousResponseId;";
+  const replacement =
+    'const prevResponseId = model.provider === "openai" || model.provider === "openai-codex" ? session.manager.previousResponseId : null;';
+
+  let patched = 0;
+  let total = 0;
+
+  for (const fileName of fs.readdirSync(distDir).filter((name) => name.endsWith(".js"))) {
+    const filePath = path.join(distDir, fileName);
+    const source = fs.readFileSync(filePath, "utf-8");
+    if (source.includes(replacement)) {
+      total += 1;
+      continue;
+    }
+    if (!source.includes(targetLine)) {
+      continue;
+    }
+    fs.writeFileSync(filePath, source.replaceAll(targetLine, replacement), "utf-8");
+    patched += 1;
+    total += 1;
+  }
+
+  log(`已应用 custom openai-responses 续传补丁：patched=${patched}/${Math.max(total, 1)}`);
 }
 
 // Windows 上给 openclaw 已知的 spawn 热点统一补 windowsHide，避免黑框闪烁。
@@ -1067,12 +1322,19 @@ const BUNDLED_PLUGINS = [
     packageName: DINGTALK_CONNECTOR_PACKAGE_NAME,
     requiredFiles: ["package.json", "openclaw.plugin.json"],
     getSource: getDingtalkConnectorPackageSource,
+    optional: true,
   },
   {
     id: "wecom-openclaw-plugin",
     packageName: WECOM_PLUGIN_PACKAGE_NAME,
     requiredFiles: ["package.json", "openclaw.plugin.json"],
     getSource: getWecomPluginPackageSource,
+  },
+  {
+    id: "oneclaw-image-generation",
+    packageName: ONECLAW_IMAGE_TOOL_PACKAGE_NAME,
+    requiredFiles: ["package.json", "openclaw.plugin.json"],
+    getSource: getOneclawImageToolPackageSource,
   },
 ];
 
@@ -1115,20 +1377,17 @@ const OPENCLAW_EXTENSION_ALLOWLIST = new Set([
   "qqbot",
   "dingtalk-connector",
   "wecom-openclaw-plugin",
+  "oneclaw-image-generation",
 ]);
 
-// 构建产物校验需要覆盖白名单中的关键扩展，避免悄悄打出残缺包。
-const REQUIRED_OPENCLAW_EXTENSION_OUTPUTS = [
-  "shared",
-  path.join("memory-core", "openclaw.plugin.json"),
-  path.join("device-pair", "openclaw.plugin.json"),
-  path.join("feishu", "openclaw.plugin.json"),
-  path.join("imessage", "openclaw.plugin.json"),
+// 仅强校验 OneClaw 额外注入/依赖的扩展。
+// openclaw 新版已将部分内置能力收进 dist/plugin-sdk，不再保证存在于 extensions/ 目录。
+const REQUIRED_ONECLAW_BUNDLED_EXTENSION_OUTPUTS = [
   path.join("kimi-claw", "openclaw.plugin.json"),
   path.join("kimi-search", "openclaw.plugin.json"),
   path.join("qqbot", "openclaw.plugin.json"),
-  path.join("dingtalk-connector", "openclaw.plugin.json"),
   path.join("wecom-openclaw-plugin", "openclaw.plugin.json"),
+  path.join("oneclaw-image-generation", "openclaw.plugin.json"),
 ];
 
 // 解析插件包来源（优先本地 tgz，其次远程 URL）
@@ -1253,17 +1512,24 @@ async function bundleNpmPackagePlugin(plugin, gatewayDir, targetId, opts) {
       {
         cwd: tmpDir,
         stdio: "inherit",
-        env: {
-          ...process.env,
-          NODE_ENV: "production",
+        env: buildNpmInstallEnv({
           npm_config_os: opts.platform,
           npm_config_cpu: opts.arch,
           NODE_LLAMA_CPP_SKIP_DOWNLOAD: "true",
-        },
+          GIT_CONFIG_COUNT: "2",
+          GIT_CONFIG_KEY_0: "url.https://github.com/.insteadOf",
+          GIT_CONFIG_VALUE_0: "ssh://git@github.com/",
+          GIT_CONFIG_KEY_1: "url.https://github.com/.insteadOf",
+          GIT_CONFIG_VALUE_1: "git@github.com:",
+        }),
       }
     );
   } catch (err) {
     rmDir(tmpDir);
+    if (plugin.optional) {
+      log(`警告: 安装可选插件 ${plugin.id} 失败，已跳过（${err.message || String(err)}）`);
+      return;
+    }
     die(`安装 ${plugin.id} 插件失败: ${err.message || String(err)}`);
   }
 
@@ -1271,9 +1537,22 @@ async function bundleNpmPackagePlugin(plugin, gatewayDir, targetId, opts) {
   const installedPkgDir = resolveInstalledPackageDir(tmpDir, plugin.packageName);
   if (!fs.existsSync(installedPkgDir)) {
     rmDir(tmpDir);
+    if (plugin.optional) {
+      log(`警告: 可选插件 ${plugin.id} 安装后未找到包目录，已跳过`);
+      return;
+    }
     die(`安装 ${plugin.id} 后未找到包目录: ${installedPkgDir}`);
   }
-  assertPluginDir(plugin, installedPkgDir, "");
+  try {
+    assertPluginDir(plugin, installedPkgDir, "");
+  } catch (err) {
+    rmDir(tmpDir);
+    if (plugin.optional) {
+      log(`警告: 可选插件 ${plugin.id} 包结构校验失败，已跳过（${err.message || String(err)}）`);
+      return;
+    }
+    throw err;
+  }
 
   // 将插件包拷贝到 extensions
   rmDir(pluginDir);
@@ -1363,13 +1642,16 @@ function installTgzPluginDeps(plugin, pluginDir, targetId, opts) {
       {
         cwd: depTmpDir,
         stdio: "inherit",
-        env: {
-          ...process.env,
-          NODE_ENV: "production",
+        env: buildNpmInstallEnv({
           npm_config_os: opts.platform,
           npm_config_cpu: opts.arch,
           NODE_LLAMA_CPP_SKIP_DOWNLOAD: "true",
-        },
+          GIT_CONFIG_COUNT: "2",
+          GIT_CONFIG_KEY_0: "url.https://github.com/.insteadOf",
+          GIT_CONFIG_VALUE_0: "ssh://git@github.com/",
+          GIT_CONFIG_KEY_1: "url.https://github.com/.insteadOf",
+          GIT_CONFIG_VALUE_1: "git@github.com:",
+        }),
       }
     );
   } catch (err) {
@@ -1793,6 +2075,7 @@ function verifyOutput(targetPaths, platform) {
 
   const required = [
     path.join(targetRel, "runtime", nodeExe),
+    path.join(targetRel, "runtime", platform === "win32" ? "ffmpeg.exe" : "ffmpeg"),
     npmDir,
     path.join(targetRel, "gateway", "gateway-entry.mjs"),
     path.join(targetRel, "gateway", "node_modules", "openclaw", "openclaw.mjs"),
@@ -1804,7 +2087,7 @@ function verifyOutput(targetPaths, platform) {
   ];
 
   required.push(
-    ...REQUIRED_OPENCLAW_EXTENSION_OUTPUTS.map((relPath) =>
+    ...REQUIRED_ONECLAW_BUNDLED_EXTENSION_OUTPUTS.map((relPath) =>
       path.join(targetRel, "gateway", "node_modules", "openclaw", "extensions", relPath)
     )
   );
@@ -1848,6 +2131,12 @@ async function main() {
   // Step 1.5: 写入 .npmrc
   log("Step 1.5: 配置 .npmrc");
   writeNpmrc(targetPaths.runtimeDir);
+
+  console.log();
+
+  // Step 1.7: 内置 ffmpeg 到 runtime，供 video-frames 等技能直接从 PATH 调用
+  log("Step 1.7: 内置 ffmpeg");
+  installBundledFfmpeg(opts, targetPaths.runtimeDir, targetPaths.targetId);
 
   console.log();
 

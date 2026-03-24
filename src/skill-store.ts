@@ -905,6 +905,12 @@ async function installTencentSkill(slug: string): Promise<SkillOperationResult> 
 
 async function uninstallTencentSkill(slug: string): Promise<SkillOperationResult> {
   const resolved = resolveInstalledSlug(slug);
+  if (!resolved) {
+    return { success: false, message: "Missing skill slug" };
+  }
+  if (!isInstalledSkillDir(resolved)) {
+    return { success: false, message: `Skill is not installed: ${slug}` };
+  }
   const targetDir = path.join(skillsBaseDir(), resolved);
 
   try {
@@ -986,13 +992,27 @@ async function installSkill(slug: string): Promise<SkillOperationResult> {
 }
 
 function resolveInstalledSlug(nameOrSlug: string): string {
+  const normalizedInput = String(nameOrSlug ?? "").trim();
+  if (!normalizedInput) {
+    return "";
+  }
+
   const installed = listInstalledSkills();
-  if (installed.includes(nameOrSlug)) {
-    return nameOrSlug;
+  if (installed.includes(normalizedInput)) {
+    return normalizedInput;
+  }
+
+  const lowerInstalled = new Map(installed.map((dir) => [dir.toLowerCase(), dir]));
+  const candidates = collectSlugCandidates(normalizedInput);
+  for (const candidate of candidates) {
+    const direct = lowerInstalled.get(candidate.toLowerCase());
+    if (direct) {
+      return direct;
+    }
   }
 
   const base = skillsBaseDir();
-  const needle = nameOrSlug.toLowerCase();
+  const needle = normalizedInput.toLowerCase();
   for (const dir of installed) {
     try {
       const md = fs.readFileSync(path.join(base, dir, "SKILL.md"), "utf-8");
@@ -1005,7 +1025,42 @@ function resolveInstalledSlug(nameOrSlug: string): string {
     }
   }
 
-  return nameOrSlug;
+  return normalizedInput;
+}
+
+function collectSlugCandidates(value: string): string[] {
+  const seen = new Set<string>();
+  const candidates: string[] = [];
+  const push = (candidate: string): void => {
+    const trimmed = candidate.trim();
+    if (!trimmed || seen.has(trimmed)) {
+      return;
+    }
+    seen.add(trimmed);
+    candidates.push(trimmed);
+  };
+
+  push(value);
+
+  const normalizedPath = value.replace(/\\/g, "/");
+  const pathTail = normalizedPath.split("/").filter(Boolean).pop() ?? "";
+  push(pathTail);
+
+  const colonTail = value.split(":").filter(Boolean).pop() ?? "";
+  push(colonTail);
+
+  const hashTail = value.split("#").filter(Boolean).pop() ?? "";
+  push(hashTail);
+
+  return candidates;
+}
+
+function isInstalledSkillDir(dirName: string): boolean {
+  const trimmed = String(dirName ?? "").trim();
+  if (!trimmed) {
+    return false;
+  }
+  return fs.existsSync(path.join(skillsBaseDir(), trimmed, "SKILL.md"));
 }
 
 async function uninstallSkill(slug: string): Promise<SkillOperationResult> {

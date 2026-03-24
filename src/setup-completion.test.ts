@@ -31,7 +31,7 @@ test("无 wizard.lastRunAt 时不应判定 Setup 已完成", () => {
   const config = {
     models: {
       providers: {
-        wanboshan: { apiKey: "sk-xxx" },
+        wbsmodels: { apiKey: "sk-xxx" },
       },
     },
   };

@@ -44,6 +44,7 @@ import {
 } from "./app-channels.ts";
 import {
   handleAbortChat as handleAbortChatInternal,
+  handleGenerateImage as handleGenerateImageInternal,
   handleSendChat as handleSendChatInternal,
   removeQueuedMessage as removeQueuedMessageInternal,
 } from "./app-chat.ts";
@@ -149,6 +150,23 @@ type OneClawPairingState = {
 };
 
 type OneClawBridge = {
+  generateImage?: (params: {
+    prompt: string;
+    size?: string;
+    quality?: string;
+  }) => Promise<{
+    success?: boolean;
+    message?: string;
+    data?: {
+      url?: string;
+      mimeType?: string | null;
+      provider?: string;
+      model?: string;
+      endpoint?: string;
+      prompt?: string;
+      revisedPrompt?: string;
+    };
+  }>;
   onNavigate?: (cb: (payload: { view: "settings" }) => void) => (() => void) | void;
   onUpdateState?: (cb: (payload: OneClawUpdateState) => void) => (() => void) | void;
   getUpdateState?: () => Promise<OneClawUpdateState>;
@@ -212,6 +230,8 @@ export class OpenClawApp extends LitElement {
     chatStream: { state: true },
     chatStreamStartedAt: { state: true },
     chatRunId: { state: true },
+    chatGeneratingImage: { state: true },
+    chatGeneratingImagePrompt: { state: true },
     compactionStatus: { state: true },
     chatAvatarUrl: { state: true },
     chatThinkingLevel: { state: true },
@@ -433,6 +453,8 @@ export class OpenClawApp extends LitElement {
   chatStream: string | null = null;
   chatStreamStartedAt: number | null = null;
   chatRunId: string | null = null;
+  chatGeneratingImage = false;
+  chatGeneratingImagePrompt: string | null = null;
   compactionStatus: CompactionStatus | null = null;
   chatAvatarUrl: string | null = null;
   chatThinkingLevel: string | null = null;
@@ -631,6 +653,7 @@ export class OpenClawApp extends LitElement {
   private chatScrollFrame: number | null = null;
   private chatScrollTimeout: number | null = null;
   private chatHasAutoScrolled = false;
+  private chatForceScrollOnNextLoad = false;
   private chatUserNearBottom = true;
   chatNewMessagesBelow = false;
   sharePromptVisible = false;
@@ -1177,6 +1200,12 @@ export class OpenClawApp extends LitElement {
       this as unknown as Parameters<typeof handleSendChatInternal>[0],
       messageOverride,
       opts,
+    );
+  }
+
+  async handleGenerateImage() {
+    await handleGenerateImageInternal(
+      this as unknown as Parameters<typeof handleGenerateImageInternal>[0],
     );
   }
 

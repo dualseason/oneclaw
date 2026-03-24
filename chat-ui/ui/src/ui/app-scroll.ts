@@ -8,6 +8,7 @@ type ScrollHost = {
   chatScrollFrame: number | null;
   chatScrollTimeout: number | null;
   chatHasAutoScrolled: boolean;
+  chatForceScrollOnNextLoad: boolean;
   chatUserNearBottom: boolean;
   chatNewMessagesBelow: boolean;
   logsScrollFrame: number | null;
@@ -49,7 +50,7 @@ export function scheduleChatScroll(host: ScrollHost, force = false, smooth = fal
 
       // force=true only overrides when we haven't auto-scrolled yet (initial load).
       // After initial load, respect the user's scroll position.
-      const effectiveForce = force && !host.chatHasAutoScrolled;
+      const effectiveForce = force || host.chatForceScrollOnNextLoad;
       const shouldStick =
         effectiveForce || host.chatUserNearBottom || distanceFromBottom < NEAR_BOTTOM_THRESHOLD;
 
@@ -60,6 +61,7 @@ export function scheduleChatScroll(host: ScrollHost, force = false, smooth = fal
       }
       if (effectiveForce) {
         host.chatHasAutoScrolled = true;
+        host.chatForceScrollOnNextLoad = false;
       }
       const smoothEnabled =
         smooth &&
@@ -143,6 +145,7 @@ export function handleLogsScroll(host: ScrollHost, event: Event) {
 
 export function resetChatScroll(host: ScrollHost) {
   host.chatHasAutoScrolled = false;
+  host.chatForceScrollOnNextLoad = true;
   host.chatUserNearBottom = true;
   host.chatNewMessagesBelow = false;
 }

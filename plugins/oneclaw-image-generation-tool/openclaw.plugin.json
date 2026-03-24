@@ -1,0 +1,13 @@
+{
+  "id": "oneclaw-image-generation",
+  "name": "Wanboshan Image Generation",
+  "description": "Generate images with the configured clawimage provider.",
+  "skills": [
+    "./skills"
+  ],
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {}
+  }
+}

@@ -6,28 +6,24 @@ import {
   resolveGatewayEntry,
   resolveGatewayCwd,
   resolveResourcesPath,
-  resolveUserConfigPath,
   resolveUserStateDir,
 } from "./constants";
-import { resolveOneclawConfigPath } from "./oneclaw-config";
 import {
+  resolveOneclawConfigPath,
+  readOneclawConfig,
+  writeOneclawConfig,
+} from "./oneclaw-config";
+import {
+  backupThenClearUserConfig,
   getConfigRecoveryData,
   restoreLastKnownGoodConfigSnapshot,
   restoreUserConfigBackup,
 } from "./config-backup";
 import {
-  PROVIDER_PRESETS,
-  MOONSHOT_SUB_PLATFORMS,
-  GLM_SUB_PLATFORMS,
-  MINIMAX_SUB_PLATFORMS,
-  CUSTOM_PROVIDER_PRESETS,
   verifyProvider,
   verifyFeishu,
   verifyQqbot,
   verifyDingtalk,
-  buildProviderConfig,
-  getBuiltinSubPlatform,
-  saveSubPlatformConfig,
   readUserConfig,
   writeUserConfig,
 } from "./provider-config";
@@ -41,10 +37,6 @@ import {
   saveKimiPluginConfig,
   isKimiPluginBundled,
   DEFAULT_KIMI_BRIDGE_WS_URL,
-  extractKimiSearchConfig,
-  saveKimiSearchConfig,
-  isKimiSearchPluginBundled,
-  writeKimiSearchDedicatedApiKey,
 } from "./kimi-config";
 import {
   extractQqbotConfig,
@@ -67,6 +59,9 @@ import {
 import { ensureGatewayAuthTokenInConfig } from "./gateway-auth";
 import { getLaunchAtLoginState, setLaunchAtLoginEnabled } from "./launch-at-login";
 import { installCli, uninstallCli, getCliStatus } from "./cli-integration";
+import { registerSettingsModelIpc } from "./settings-model-ipc";
+import { registerSettingsSystemIpc } from "./settings-system-ipc";
+import { registerSettingsBotChannelIpc } from "./settings-bot-channel-ipc";
 import * as analytics from "./analytics";
 import * as path from "path";
 import * as fs from "fs";
@@ -135,7 +130,7 @@ type SettingsActionResult = {
   message?: string;
 };
 
-// 统一封装 Settings 埋点：started/result 一次接入，所有保存类 handler 复用。
+// Unified settings action tracking wrapper.
 async function runTrackedSettingsAction<T extends SettingsActionResult>(
   action: analytics.SettingsAction,
   props: Record<string, unknown>,
@@ -187,88 +182,36 @@ interface SettingsIpcOptions {
   requestGatewayRestart?: () => void;
 }
 
-// 注册 Settings 相关 IPC
+// 婵炲鍔岄崬?Settings 闁烩晝顭堥崣?IPC
 export function registerSettingsIpc(opts: SettingsIpcOptions = {}): void {
-  // 写入配置后自动重启 gateway，避免新增 handler 遗漏重启调用
+  // 闁告劖鐟ラ崣鍡涙煀瀹ュ洨鏋傞柛姘唉閸ゆ粓宕濋妸鈺佹闁?gateway闁挎稑鐭傛导鈺呭礂瀹ュ棙鐓€濠?handler 闂侇剚顨嗙槐锟犳煂瀹ュ懏鍎欓悹瀣暟閺?
   const writeUserConfigAndRestart: typeof writeUserConfig = (config) => {
     writeUserConfig(config);
     opts.requestGatewayRestart?.();
   };
-  // ── 读取当前 provider/model 配置（apiKey 掩码返回） ──
-  ipcMain.handle("settings:get-config", async () => {
-    try {
-      const config = readUserConfig();
-      return { success: true, data: extractProviderInfo(config) };
-    } catch (err: any) {
-      return { success: false, message: err.message };
-    }
+  // 闁冲厜鍋撻柍鍏夊亾 閻犲洩顕цぐ鍥亹閹惧啿顤?provider/model 闂佹澘绉堕悿鍡涙晬閸у嵅iKey 闁硅　鏅濋悥婊勬交閺傛寧绀€闁?闁冲厜鍋撻柍鍏夊亾
+  registerSettingsModelIpc({
+    runTrackedSettingsAction,
+    writeUserConfigAndRestart,
   });
 
-  // ── 验证 API Key（复用 provider-config） ──
-  ipcMain.handle("settings:verify-key", async (_event, params) => {
-    const provider = typeof params?.provider === "string" ? params.provider : "";
-    return runTrackedSettingsAction("verify_key", { provider }, async () => verifyProvider(params));
+  registerSettingsSystemIpc({
+    analytics,
+    runTrackedSettingsAction,
+    writeUserConfigAndRestart,
   });
 
-  // ── 读取最新分享文案（服务端维护中英文版本） ──
-  // ── 保存 provider 配置 ──
-  ipcMain.handle("settings:save-provider", async (_event, params) => {
-    const { provider, apiKey, modelID, baseURL, api, subPlatform, supportImage, customPreset } = params;
-    const trackedProps = {
-      provider,
-      model: modelID,
-      sub_platform: subPlatform || undefined,
-      custom_preset: customPreset || undefined,
-    };
-    return runTrackedSettingsAction("save_provider", trackedProps, async () => {
-      try {
-        const config = readUserConfig();
-
-        // 初始化嵌套结构
-        config.models ??= {};
-        config.models.providers ??= {};
-        config.agents ??= {};
-        config.agents.defaults ??= {};
-        config.agents.defaults.model ??= {};
-
-        const builtinSubPlatform = getBuiltinSubPlatform(provider, subPlatform);
-
-        if (builtinSubPlatform) {
-          // 记住现有 models 再写入（saveMoonshotConfig 会覆盖）
-          const provKey = builtinSubPlatform.providerKey;
-          const prevModels: any[] = config.models.providers[provKey]?.models ?? [];
-
-          saveSubPlatformConfig(config, provider, apiKey, modelID, subPlatform);
-
-          // 合并：保留已有模型，确保选中模型在列表中
-          mergeModels(config.models.providers[provKey], modelID, prevModels);
-        } else {
-          // 内置预设命中时，使用预设的 providerKey 作为配置键
-          const customPre = customPreset ? CUSTOM_PROVIDER_PRESETS[customPreset] : undefined;
-          const configKey = customPre ? customPre.providerKey : provider;
-          const prevModels: any[] = config.models.providers[configKey]?.models ?? [];
-
-          const providerConfig = buildProviderConfig(provider, apiKey, modelID, baseURL, api, supportImage, customPreset);
-          config.models.providers[configKey] = providerConfig;
-          config.agents.defaults.model.primary = `${configKey}/${modelID}`;
-
-          mergeModels(config.models.providers[configKey], modelID, prevModels);
-        }
-
-        // 配置 kimi-code 时自动启用搜索插件
-        if (provider === "moonshot" && subPlatform === "kimi-code") {
-          saveKimiSearchConfig(config, { enabled: true });
-        }
-
-        writeUserConfigAndRestart(config);
-        return { success: true };
-      } catch (err: any) {
-        return { success: false, message: err.message || String(err) };
-      }
-    });
+  registerSettingsBotChannelIpc({
+    runTrackedSettingsAction,
+    writeUserConfigAndRestart,
   });
 
-  // ── 读取频道配置 ──
+  // 闁冲厜鍋撻柍鍏夊亾 濡ょ姴鐭侀惁?API Key闁挎稑鐗嗛ˇ鏌ユ偨?provider-config闁?闁冲厜鍋撻柍鍏夊亾
+
+  // 闁冲厜鍋撻柍鍏夊亾 閻犲洩顕цぐ鍥嫉閳ь剟寮弶鍨€诲ù婊庡亝閺嬪啫顩奸崼顒傜闁哄牆绉存慨鐔虹博椤栨粍妯婇柟韬插€撻懙鎴︽嚐鏉堛劍鐎柣妤€鐗婂﹢浼存晬?闁冲厜鍋撻柍鍏夊亾
+  // 闁冲厜鍋撻柍鍏夊亾 濞ｅ洦绻傞悺?provider 闂佹澘绉堕悿?闁冲厜鍋撻柍鍏夊亾
+
+  // 闁冲厜鍋撻柍鍏夊亾 閻犲洩顕цぐ鍥紣閹达缚澹曢梺鏉跨Ф閻?闁冲厜鍋撻柍鍏夊亾
   ipcMain.handle("settings:get-channel-config", async () => {
     try {
       const config = readUserConfig();
@@ -300,7 +243,7 @@ export function registerSettingsIpc(opts: SettingsIpcOptions = {}): void {
     }
   });
 
-  // ── 保存频道配置（支持 enabled=false 仅切换开关） ──
+  // 闁冲厜鍋撻柍鍏夊亾 濞ｅ洦绻傞悺銊︼紣閹达缚澹曢梺鏉跨Ф閻ゅ棝鏁嶉崼鐔告殰闁?enabled=false 濞寸姴鎳庨崹蹇涘箲閵忕姷纾婚柛蹇曨劜缁?闁冲厜鍋撻柍鍏夊亾
   ipcMain.handle("settings:save-channel", async (_event, params) => {
     const { appId, appSecret, enabled } = params;
     const dmPolicy = normalizeDmPolicy(
@@ -320,7 +263,7 @@ export function registerSettingsIpc(opts: SettingsIpcOptions = {}): void {
       if (groupPolicy === "allowlist") {
         const hasInvalidGroupId = groupAllowFrom.some((entry) => !looksLikeFeishuGroupId(entry));
         if (hasInvalidGroupId) {
-          return { success: false, message: "群聊白名单只能填写以 oc_ 开头的群 ID。" };
+          return { success: false, message: "Only group IDs starting with oc_ are allowed." };
         }
       }
       try {
@@ -332,25 +275,25 @@ export function registerSettingsIpc(opts: SettingsIpcOptions = {}): void {
         config.plugins ??= {};
         config.plugins.entries ??= {};
 
-        // 仅禁用 → 不校验凭据
+        // 濞寸姴鎳愰々锕傛偨?闁?濞戞挸绉甸悧搴㈩殽鐏炶棄娈堕柟?
         if (enabled === false) {
           config.plugins.entries.feishu = { ...(config.plugins.entries.feishu ?? {}), enabled: false };
           writeUserConfigAndRestart(config);
-          // 禁用飞书时关闭“首配自动批准”窗口，但保留已消费标记，防止重复自动批准。
+          // 缂佸倷鑳堕弫銈嗩槹閻愭澘濮涢柡鍐硾閸櫻囨⒒椤撴稈鍋撳鍫禃闂佹澘绉烽崵婊堝礉閵婏箑顥楅柛鎴濇閳ь剚绻勯悰銉╁矗閿濆繒绀夊ù锝呮缁绘岸鎮惧▎蹇撳殥婵炴垵鐗愰崹鍌炲冀閸ヮ亶鍞堕柨娑樼焸濡茶顫㈤姀銈呮濠㈣泛绉烽崵婊堝礉閵婏箑顥楅柛鎴濇閳?
           closeFeishuFirstPairingWindow();
           return { success: true };
         }
 
-        // 保存前验证凭据
+        // 濞ｅ洦绻傞悺銊╁礈瀹ュ宕ｉ悹鍥︾閸ょ喖骞?
         try {
           await verifyFeishu(appId, appSecret);
         } catch (err: any) {
-          return { success: false, message: err.message || "飞书凭据验证失败" };
+          return { success: false, message: err.message || "Feishu credential verification failed." };
         }
 
         config.plugins.entries.feishu = { enabled: true };
         config.channels ??= {};
-        // 保留已有飞书策略字段，避免每次保存凭据都把 dmPolicy/allowFrom 覆盖丢失
+        // 濞ｅ洦绻勯弳鈧€圭寮跺﹢浣诡槹閻愭澘濮涚紒娑欑墱閺嗘劗鈧稒顨嗛宀勬晬瀹€鍕級闁稿繐绉甸惁鈥斥枎閳ヨ尙绠介悗娑櫭崵鐔煎箲椤曗偓閸忔﹢骞?dmPolicy/allowFrom 閻熸洖妫涘ú濠冪▔閵忕姰浜?
         const prevFeishu =
           config.channels.feishu && typeof config.channels.feishu === "object"
             ? config.channels.feishu
@@ -385,7 +328,7 @@ export function registerSettingsIpc(opts: SettingsIpcOptions = {}): void {
           delete config.channels.feishu.groupAllowFrom;
         }
 
-        // 私聊会话隔离属于全局 session 配置，不是飞书子配置。
+        // 缂佸娴囨禍鐗堝濮樺磭妯堥梻鍛⒒椤洨浠﹂悙鎵壘闁稿繈鍔岄惇?session 闂佹澘绉堕悿鍡涙晬鐏炶偐鐟濋柡鍕靛灦椤ワ絾绋婇敃鈧悺娆撴煀瀹ュ洨鏋傞柕?
         config.session ??= {};
         if (dmScope === "main") {
           delete config.session.dmScope;
@@ -396,7 +339,7 @@ export function registerSettingsIpc(opts: SettingsIpcOptions = {}): void {
           config.session.dmScope = dmScope;
         }
         writeUserConfigAndRestart(config);
-        // 保存完成后按当前策略维护首配窗口，确保仅在 pairing 且无授权用户时才开启。
+        // 濞ｅ洦绻傞悺銊р偓鐟版湰閸ㄦ岸宕ユ惔銏犵樆鐟滅増鎸告晶鐘电驳閺嶎偅娈ｇ紓浣哥摠婵垺锛冮弽顓炲赋缂佹劖顨呰ぐ娑㈡晬瀹€鈧垾妯荤┍濠靛懐鐭岄柛?pairing 濞戞挻姊瑰Λ銈夊箳閸喐缍€闁活潿鍔嶉崺娑㈠籍閼搁潧顤呯€殿喒鍋撻柛姘煎灛閳?
         reconcileFeishuFirstPairingWindow(config);
         return { success: true };
       } catch (err: any) {
@@ -405,29 +348,27 @@ export function registerSettingsIpc(opts: SettingsIpcOptions = {}): void {
     });
   });
 
-  // ── 读取 QQ Bot 配置 ──
+  if (false) {
+  // 闁冲厜鍋撻柍鍏夊亾 閻犲洩顕цぐ?QQ Bot 闂佹澘绉堕悿?闁冲厜鍋撻柍鍏夊亾
   function resolveQqbotMissingMessage(): string {
-    // dev 模式最常见的问题是还没执行 package:resources，把 qqbot 插件注入目标资源目录。
     if (!app.isPackaged) {
-      return `开发模式未检测到 QQ Bot 插件，请先运行 npm run package:resources（当前目标：${process.platform}-${process.arch}）。`;
+      return `QQ Bot bundle not found. Run npm run package:resources to generate resources for ${process.platform}-${process.arch}.`;
     }
-    return "QQ Bot 组件缺失，请重新安装 虾虾。";
+    return "QQ Bot bundle is missing. Please reinstall OneClaw.";
   }
 
   function resolveDingtalkMissingMessage(): string {
-    // dev 模式最常见的问题是还没执行 package:resources，把钉钉插件注入目标资源目录。
     if (!app.isPackaged) {
-      return `开发模式未检测到钉钉连接器插件，请先运行 npm run package:resources（当前目标：${process.platform}-${process.arch}）。`;
+      return `DingTalk connector bundle not found. Run npm run package:resources to generate resources for ${process.platform}-${process.arch}.`;
     }
-    return "钉钉连接器组件缺失，请重新安装 虾虾。";
+    return "DingTalk connector bundle is missing. Please reinstall OneClaw.";
   }
 
   function resolveWecomMissingMessage(): string {
-    // dev 模式最常见的问题是还没执行 package:resources，把企业微信插件注入目标资源目录。
     if (!app.isPackaged) {
-      return `开发模式未检测到企业微信插件，请先运行 npm run package:resources（当前目标：${process.platform}-${process.arch}）。`;
+      return `WeCom plugin bundle not found. Run npm run package:resources to generate resources for ${process.platform}-${process.arch}.`;
     }
-    return "企业微信插件组件缺失，请重新安装 虾虾。";
+    return "WeCom plugin bundle is missing. Please reinstall OneClaw.";
   }
 
   ipcMain.handle("settings:get-qqbot-config", async () => {
@@ -447,7 +388,7 @@ export function registerSettingsIpc(opts: SettingsIpcOptions = {}): void {
     }
   });
 
-  // ── 保存 QQ Bot 配置（支持 enabled=false 仅切换开关） ──
+  // 闁冲厜鍋撻柍鍏夊亾 濞ｅ洦绻傞悺?QQ Bot 闂佹澘绉堕悿鍡涙晬閸喐鏆滈柟?enabled=false 濞寸姴鎳庨崹蹇涘箲閵忕姷纾婚柛蹇曨劜缁?闁冲厜鍋撻柍鍏夊亾
   ipcMain.handle("settings:save-qqbot-config", async (_event, params) => {
     const enabled = params?.enabled === true;
     const appId = typeof params?.appId === "string" ? params.appId.trim() : "";
@@ -467,20 +408,20 @@ export function registerSettingsIpc(opts: SettingsIpcOptions = {}): void {
           }
 
           if (!appId) {
-            return { success: false, message: "QQ Bot App ID 不能为空。" };
+            return { success: false, message: "Please enter QQ Bot App ID." };
           }
           if (!clientSecret) {
-            return { success: false, message: "QQ Bot Client Secret 不能为空。" };
+            return { success: false, message: "Please enter QQ Bot Client Secret." };
           }
           if (!isQqbotPluginBundled()) {
             return { success: false, message: resolveQqbotMissingMessage() };
           }
 
-          // 保存前验证凭据
+          // 濞ｅ洦绻傞悺銊╁礈瀹ュ宕ｉ悹鍥︾閸ょ喖骞?
           try {
             await verifyQqbot(appId, clientSecret);
           } catch (err: any) {
-            return { success: false, message: err.message || "QQ Bot 凭据验证失败" };
+            return { success: false, message: err.message || "QQ Bot credential verification failed." };
           }
 
           saveQqbotConfig(config, {
@@ -498,7 +439,7 @@ export function registerSettingsIpc(opts: SettingsIpcOptions = {}): void {
     );
   });
 
-  // ── 读取钉钉配置 ──
+  // 闁冲厜鍋撻柍鍏夊亾 閻犲洩顕цぐ鍥煢婢舵劖瀚熼梺鏉跨Ф閻?闁冲厜鍋撻柍鍏夊亾
   ipcMain.handle("settings:get-dingtalk-config", async () => {
     try {
       const config = readUserConfig();
@@ -516,7 +457,7 @@ export function registerSettingsIpc(opts: SettingsIpcOptions = {}): void {
     }
   });
 
-  // ── 保存钉钉配置（支持 enabled=false 仅切换开关） ──
+  // 闁冲厜鍋撻柍鍏夊亾 濞ｅ洦绻傞悺銊╂煢婢舵劖瀚熼梺鏉跨Ф閻ゅ棝鏁嶉崼鐔告殰闁?enabled=false 濞寸姴鎳庨崹蹇涘箲閵忕姷纾婚柛蹇曨劜缁?闁冲厜鍋撻柍鍏夊亾
   ipcMain.handle("settings:save-dingtalk-config", async (_event, params) => {
     const enabled = params?.enabled === true;
     const clientId = typeof params?.clientId === "string" ? params.clientId.trim() : "";
@@ -543,23 +484,23 @@ export function registerSettingsIpc(opts: SettingsIpcOptions = {}): void {
           }
 
           if (!clientId) {
-            return { success: false, message: "钉钉 Client ID / AppKey 不能为空。" };
+            return { success: false, message: "Please enter DingTalk Client ID / AppKey." };
           }
           if (!clientSecret) {
-            return { success: false, message: "钉钉 Client Secret / AppSecret 不能为空。" };
+            return { success: false, message: "Please enter DingTalk Client Secret / AppSecret." };
           }
           if (!Number.isFinite(sessionTimeout) || sessionTimeout <= 0) {
-            return { success: false, message: "会话超时必须是大于 0 的毫秒数。" };
+            return { success: false, message: "Session timeout must be a positive number." };
           }
           if (!isDingtalkPluginBundled()) {
             return { success: false, message: resolveDingtalkMissingMessage() };
           }
 
-          // 保存前验证凭据
+          // 濞ｅ洦绻傞悺銊╁礈瀹ュ宕ｉ悹鍥︾閸ょ喖骞?
           try {
             await verifyDingtalk(clientId, clientSecret);
           } catch (err: any) {
-            return { success: false, message: err.message || "钉钉凭据验证失败" };
+            return { success: false, message: err.message || "DingTalk credential verification failed." };
           }
 
           saveDingtalkConfig(config, {
@@ -577,7 +518,7 @@ export function registerSettingsIpc(opts: SettingsIpcOptions = {}): void {
     );
   });
 
-  // ── 读取企业微信配置 ──
+  // 闁冲厜鍋撻柍鍏夊亾 閻犲洩顕цぐ鍥ㄥ娴ｉ鐟圭€甸偊鍠曟穱濠囨煀瀹ュ洨鏋?闁冲厜鍋撻柍鍏夊亾
   ipcMain.handle("settings:get-wecom-config", async () => {
     try {
       const config = readUserConfig();
@@ -595,7 +536,7 @@ export function registerSettingsIpc(opts: SettingsIpcOptions = {}): void {
     }
   });
 
-  // ── 保存企业微信配置（支持 enabled=false 仅切换开关） ──
+  // 闁冲厜鍋撻柍鍏夊亾 濞ｅ洦绻傞悺銊﹀娴ｉ鐟圭€甸偊鍠曟穱濠囨煀瀹ュ洨鏋傞柨娑樼墛閺侇噣骞?enabled=false 濞寸姴鎳庨崹蹇涘箲閵忕姷纾婚柛蹇曨劜缁?闁冲厜鍋撻柍鍏夊亾
   ipcMain.handle("settings:save-wecom-config", async (_event, params) => {
     const enabled = params?.enabled === true;
     const botId = typeof params?.botId === "string" ? params.botId.trim() : "";
@@ -618,20 +559,20 @@ export function registerSettingsIpc(opts: SettingsIpcOptions = {}): void {
           }
 
           if (!botId) {
-            return { success: false, message: "企业微信 Bot ID 不能为空。" };
+            return { success: false, message: "Please enter WeCom Bot ID." };
           }
           if (!secret) {
-            return { success: false, message: "企业微信 Secret 不能为空。" };
+            return { success: false, message: "Please enter WeCom Secret." };
           }
           if (!isWecomPluginBundled()) {
             return { success: false, message: resolveWecomMissingMessage() };
           }
 
-          // 保存前验证凭据，避免坏配置写入后导致 gateway 启动失败
+          // 濞ｅ洦绻傞悺銊╁礈瀹ュ宕ｉ悹鍥︾閸ょ喖骞戦鍡欑闂侇剙鐏濋崢銈夊锤韫囨稑甯崇紓鍐惧枛閸熸捇宕楅妷銉﹀€甸悗浣冨閸?gateway 闁告凹鍨版慨鈺傚緞鏉堫偉袝
           try {
             await verifyWecom(botId, secret);
           } catch (err: any) {
-            return { success: false, message: err.message || "企业微信凭据验证失败" };
+            return { success: false, message: err.message || "WeCom credential verification failed." };
           }
 
           saveWecomConfig(config, {
@@ -651,7 +592,8 @@ export function registerSettingsIpc(opts: SettingsIpcOptions = {}): void {
     );
   });
 
-  // ── 列出企业微信待审批配对请求（走 openclaw pairing list） ──
+  // 闁冲厜鍋撻柍鍏夊亾 闁告帗顨呴崵顓熷娴ｉ鐟圭€甸偊鍠曟穱濠傤嚗閸涱収鍚€闁归潧缍婇崢銈団偓鐢殿攰椤曨剙效閸岋妇绀勯悹?openclaw pairing list闁?闁冲厜鍋撻柍鍏夊亾
+  }
   ipcMain.handle("settings:list-wecom-pairing", async () => {
     const listed = await listWecomPairingRequests();
     return {
@@ -661,7 +603,7 @@ export function registerSettingsIpc(opts: SettingsIpcOptions = {}): void {
     };
   });
 
-  // ── 列出企业微信已授权用户与群聊 ──
+  // 闁冲厜鍋撻柍鍏夊亾 闁告帗顨呴崵顓熷娴ｉ鐟圭€甸偊鍠曟穱濠傤啅閸欏鎴块柡澶婂暟閺併倝骞嬮摎鍌滅憿缂傚洢鍊涙禍?闁冲厜鍋撻柍鍏夊亾
   ipcMain.handle("settings:list-wecom-approved", async () => {
     try {
       const config = readUserConfig();
@@ -680,22 +622,22 @@ export function registerSettingsIpc(opts: SettingsIpcOptions = {}): void {
     }
   });
 
-  // ── 批准企业微信配对请求（走 openclaw pairing approve） ──
+  // 闁冲厜鍋撻柍鍏夊亾 闁圭數鎳撻崳顖涘娴ｉ鐟圭€甸偊鍠曟穱濠囨煀瀹ュ拋鍤犻悹鍥敱閻即鏁嶉崼锝堟巢 openclaw pairing approve闁?闁冲厜鍋撻柍鍏夊亾
   ipcMain.handle("settings:approve-wecom-pairing", async (_event, params) => {
     return approveWecomPairingRequest(params);
   });
 
-  // ── 拒绝企业微信配对请求（本地忽略 pairing code） ──
+  // 闁冲厜鍋撻柍鍏夊亾 闁归攱甯炵划閿嬪娴ｉ鐟圭€甸偊鍠曟穱濠囨煀瀹ュ拋鍤犻悹鍥敱閻即鏁嶉崼鐔告嫳闁革附婢橀幏鐑芥偩?pairing code闁?闁冲厜鍋撻柍鍏夊亾
   ipcMain.handle("settings:reject-wecom-pairing", async (_event, params) => {
     return rejectWecomPairingRequest(params);
   });
 
-  // ── 删除企业微信已授权用户/群聊 ──
+  // 闁冲厜鍋撻柍鍏夊亾 闁告帞濞€濞呭孩瀵兼担椋庣懝鐎甸偊鍠曟穱濠傤啅閸欏鎴块柡澶婂暟閺併倝骞?缂傚洢鍊涙禍?闁冲厜鍋撻柍鍏夊亾
   ipcMain.handle("settings:remove-wecom-approved", async (_event, params) => {
     const kind = params?.kind === "group" ? "group" : "user";
     const id = typeof params?.id === "string" ? params.id.trim() : "";
     if (!id) {
-      return { success: false, message: "授权 ID 不能为空。" };
+      return { success: false, message: "ID is required." };
     }
     try {
       const config = readUserConfig();
@@ -726,16 +668,16 @@ export function registerSettingsIpc(opts: SettingsIpcOptions = {}): void {
     }
   });
 
-  // ── 列出飞书待审批配对请求（走 openclaw pairing list，避免重复实现存储协议） ──
+  // 闁冲厜鍋撻柍鍏夊亾 闁告帗顨呴崵顓燁槹閻愭澘濮涚€垫澘鎳庨鎼佸箥瑜版帒甯抽悗鐢殿攰椤曨剙效閸岋妇绀勯悹?openclaw pairing list闁挎稑鐭傛导鈺呭礂瀹ュ娅㈠璺虹Т閻ゅ嫰鎮抽弶璺ㄦ憼闁稿被鍔屽畷妤冩媼椤曞棛绀?闁冲厜鍋撻柍鍏夊亾
   ipcMain.handle("settings:list-feishu-pairing", async () => {
     const listed = await listFeishuPairingRequests();
     if (!listed.success) {
-      return { success: false, message: listed.message || "读取飞书待审批列表失败" };
+      return { success: false, message: listed.message || "Failed to list Feishu pairing requests." };
     }
     return { success: true, data: { requests: listed.requests } };
   });
 
-  // ── 列出飞书已授权列表（用户 + 群聊，优先展示可读名称） ──
+  // 闁冲厜鍋撻柍鍏夊亾 闁告帗顨呴崵顓燁槹閻愭澘濮涚€圭寮跺鍧楀级閸愩劌鐏欓悶娑辩厜缁辨瑩鎮介妸锕€鐓?+ 缂傚洢鍊涙禍浼存晬鐏炶偐鍠橀柛蹇撶墕閻秶绮堥崫鍕閻犲洩顕ч幃鏇犵矓鐢喚绀?闁冲厜鍋撻柍鍏夊亾
   ipcMain.handle("settings:list-feishu-approved", async () => {
     try {
       const config = readUserConfig();
@@ -762,21 +704,21 @@ export function registerSettingsIpc(opts: SettingsIpcOptions = {}): void {
     }
   });
 
-  // ── 批准飞书配对请求（走 openclaw pairing approve，统一写入 allowlist store） ──
+  // 闁冲厜鍋撻柍鍏夊亾 闁圭數鎳撻崳顖涱槹閻愭澘濮涢梺鏉跨Т椤曨喚鎷犻柨瀣勾闁挎稑鐗愰摂?openclaw pairing approve闁挎稑鐬肩划鐑樼▔閳ь剟宕樺▎蹇撳汲 allowlist store闁?闁冲厜鍋撻柍鍏夊亾
   ipcMain.handle("settings:approve-feishu-pairing", async (_event, params) => {
     return approveFeishuPairingRequest(params);
   });
 
-  // ── 拒绝飞书配对请求（openclaw 暂无 reject 命令，使用本地 sidecar 忽略该 pairing code） ──
+  // 闁冲厜鍋撻柍鍏夊亾 闁归攱甯炵划閿嬵槹閻愭澘濮涢梺鏉跨Т椤曨喚鎷犻柨瀣勾闁挎稑娼祊enclaw 闁哄棗鍊瑰Λ?reject 闁告稒鍨濋幎銈夋晬鐏炵厧鈻忛柣顫妽濠€浼村捶?sidecar 闊洨鏅弳鎰嫚?pairing code闁?闁冲厜鍋撻柍鍏夊亾
   ipcMain.handle("settings:reject-feishu-pairing", async (_event, params) => {
     return rejectFeishuPairingRequest(params);
   });
 
-  // ── 添加群聊白名单条目（仅允许群 ID） ──
+  // 闁冲厜鍋撻柍鍏夊亾 婵烇綀顕ф慨鐐电礃閵堝牅鍠婇柣褑妫勯幃鏇㈠础閺囩喐钂嬮柣鈺婂櫙缁辨瑦绂掗崨顓炲笒閻犱礁鎽滈崗?ID闁?闁冲厜鍋撻柍鍏夊亾
   ipcMain.handle("settings:add-feishu-group-allow-from", async (_event, params) => {
     const id = String(params?.id ?? "").trim();
     if (!looksLikeFeishuGroupId(id)) {
-      return { success: false, message: "仅允许填写以 oc_ 开头的群 ID。" };
+      return { success: false, message: "Only group IDs starting with oc_ are allowed." };
     }
 
     try {
@@ -795,12 +737,12 @@ export function registerSettingsIpc(opts: SettingsIpcOptions = {}): void {
     }
   });
 
-  // ── 删除飞书已授权条目（用户/群聊） ──
+  // 闁冲厜鍋撻柍鍏夊亾 闁告帞濞€濞呭孩顦伴悙鏉垮鐎圭寮跺鍧楀级閸愨晜钂嬮柣鈺婂櫙缁辨瑩鎮介妸锕€鐓?缂傚洢鍊涙禍浼存晬?闁冲厜鍋撻柍鍏夊亾
   ipcMain.handle("settings:remove-feishu-approved", async (_event, params) => {
     const kind = String(params?.kind ?? "").trim().toLowerCase() === "group" ? "group" : "user";
     const id = String(params?.id ?? "").trim();
     if (!id) {
-      return { success: false, message: "授权条目标识不能为空。" };
+      return { success: false, message: "ID is required." };
     }
 
     try {
@@ -839,17 +781,10 @@ export function registerSettingsIpc(opts: SettingsIpcOptions = {}): void {
     }
   });
 
-  // ── 读取 Kimi 插件配置 ──
-  ipcMain.handle("settings:get-kimi-config", async () => {
-    try {
-      const config = readUserConfig();
-      return { success: true, data: extractKimiConfig(config) };
-    } catch (err: any) {
-      return { success: false, message: err.message };
-    }
-  });
+  // 闁冲厜鍋撻柍鍏夊亾 閻犲洩顕цぐ?Kimi 闁圭粯甯婂▎銏ゆ煀瀹ュ洨鏋?闁冲厜鍋撻柍鍏夊亾
 
-  // ── 保存 Kimi 插件配置（支持 enabled=false 仅切换开关） ──
+  // 闁冲厜鍋撻柍鍏夊亾 濞ｅ洦绻傞悺?Kimi 闁圭粯甯婂▎銏ゆ煀瀹ュ洨鏋傞柨娑樼墛閺侇噣骞?enabled=false 濞寸姴鎳庨崹蹇涘箲閵忕姷纾婚柛蹇曨劜缁?闁冲厜鍋撻柍鍏夊亾
+  if (false) {
   ipcMain.handle("settings:save-kimi-config", async (_event, params) => {
     const botToken = typeof params?.botToken === "string" ? params.botToken.trim() : "";
     const enabled = params?.enabled;
@@ -859,7 +794,7 @@ export function registerSettingsIpc(opts: SettingsIpcOptions = {}): void {
         config.plugins ??= {};
         config.plugins.entries ??= {};
 
-        // 仅禁用 → 不校验 token
+        // 濞寸姴鎳愰々锕傛偨?闁?濞戞挸绉甸悧搴㈩殽?token
         if (enabled === false) {
           if (config.plugins.entries["kimi-claw"]) {
             config.plugins.entries["kimi-claw"].enabled = false;
@@ -872,10 +807,10 @@ export function registerSettingsIpc(opts: SettingsIpcOptions = {}): void {
         }
 
         if (!botToken) {
-          return { success: false, message: "Kimi Bot Token 不能为空。" };
+          return { success: false, message: "Please provide Kimi Bot Token." };
         }
         if (!isKimiPluginBundled()) {
-      return { success: false, message: "Kimi Channel 组件缺失，请重新安装 虾虾。" };
+          return { success: false, message: "Kimi channel bundle is missing. Please reinstall OneClaw." };
         }
 
         const gatewayToken = ensureGatewayAuthTokenInConfig(config);
@@ -888,46 +823,13 @@ export function registerSettingsIpc(opts: SettingsIpcOptions = {}): void {
     });
   });
 
-  // ── 读取 Kimi Search 配置 ──
-  ipcMain.handle("settings:get-kimi-search-config", async () => {
-    try {
-      const config = readUserConfig();
-      return { success: true, data: extractKimiSearchConfig(config) };
-    } catch (err: any) {
-      return { success: false, message: err.message };
-    }
-  });
 
-  // ── 保存 Kimi Search 配置 ──
-  ipcMain.handle("settings:save-kimi-search-config", async (_event, params) => {
-    const enabled = params?.enabled === true;
-    const apiKey = typeof params?.apiKey === "string" ? params.apiKey : undefined;
-    const serviceBaseUrl = typeof params?.serviceBaseUrl === "string" ? params.serviceBaseUrl : undefined;
-    return runTrackedSettingsAction("save_kimi_search", { enabled }, async () => {
-      try {
-        if (enabled && !isKimiSearchPluginBundled()) {
-      return { success: false, message: "Kimi Search 组件缺失，请重新安装 虾虾。" };
-        }
-        // 专属 key 存到 sidecar 文件，不写入 openclaw.json
-        if (typeof apiKey === "string") {
-          writeKimiSearchDedicatedApiKey(apiKey);
-        }
-        const config = readUserConfig();
-        saveKimiSearchConfig(config, { enabled, serviceBaseUrl });
-        writeUserConfigAndRestart(config);
-        return { success: true };
-      } catch (err: any) {
-        return { success: false, message: err.message || String(err) };
-      }
-    });
-  });
-
-  // ── 读取高级配置（browser profile + iMessage） ──
+  // 闁冲厜鍋撻柍鍏夊亾 閻犲洩顕цぐ鍥殗濡ジ鐛撻梺鏉跨Ф閻ゅ棝鏁嶉崸鍞昽wser profile + iMessage闁?闁冲厜鍋撻柍鍏夊亾
   ipcMain.handle("settings:get-advanced", async () => {
     try {
       const config = readUserConfig();
       const launchAtLoginState = getLaunchAtLoginState(app);
-      // session-memory hook：未配置过视为开启（存量用户默认开启）
+      // session-memory hook闁挎稒纰嶅﹢顓㈡煀瀹ュ洨鏋傞弶鈺佹穿椤绋夐崫鍕；闁告凹鍨界槐娆戔偓娑欙耿閸ｆ椽鎮介妸锕€鐓曞娑欘焾椤撹顕ｉ埀顒勫触椤栥倗绀?
       const sessionMemoryEntry = config?.hooks?.internal?.entries?.["session-memory"];
       const sessionMemoryEnabled = sessionMemoryEntry?.enabled !== false;
       return {
@@ -946,7 +848,7 @@ export function registerSettingsIpc(opts: SettingsIpcOptions = {}): void {
     }
   });
 
-  // ── 保存高级配置 ──
+  // 闁冲厜鍋撻柍鍏夊亾 濞ｅ洦绻傞悺銊︻殗濡ジ鐛撻梺鏉跨Ф閻?闁冲厜鍋撻柍鍏夊亾
   ipcMain.handle("settings:save-advanced", async (_event, params) => {
     const { browserProfile, imessageEnabled } = params;
     const launchAtLogin = typeof params?.launchAtLogin === "boolean" ? params.launchAtLogin : undefined;
@@ -970,7 +872,7 @@ export function registerSettingsIpc(opts: SettingsIpcOptions = {}): void {
             setLaunchAtLoginEnabled(app, launchAtLogin);
           }
 
-          // 写入 session-memory hook 开关
+          // 闁告劖鐟ラ崣?session-memory hook 鐎殿喒鍋撻柛?
           if (typeof sessionMemoryEnabled === "boolean") {
             config.hooks ??= {};
             config.hooks.internal ??= { enabled: true, entries: {} };
@@ -979,7 +881,7 @@ export function registerSettingsIpc(opts: SettingsIpcOptions = {}): void {
             config.hooks.internal.entries["session-memory"] = { enabled: sessionMemoryEnabled };
           }
 
-          // SkillHub Registry URL 写入独立文件（不污染 gateway config）
+          // SkillHub Registry URL 闁告劖鐟ラ崣鍡涙偑椤掑倻褰岄柡鍌氭矗濞嗐垽鏁嶉崼婊呯憹婵厜鍓濋悡?gateway config闁?
           if (clawHubRegistry !== undefined) {
             writeSkillStoreRegistry(clawHubRegistry);
           }
@@ -993,7 +895,7 @@ export function registerSettingsIpc(opts: SettingsIpcOptions = {}): void {
     );
   });
 
-  // ── 读取 CLI 状态（enabled=用户偏好，installed=当前/旧版 wrapper 足迹） ──
+  // 闁冲厜鍋撻柍鍏夊亾 閻犲洩顕цぐ?CLI 闁绘鍩栭埀顑跨筏缁辨獔nabled=闁活潿鍔嶉崺娑㈠磻韫囨挶鍋ㄩ柨娑橆吙nstalled=鐟滅増鎸告晶?闁哄唲鍛暭 wrapper 閻℃帒鐤囬幎妤呮晬?闁冲厜鍋撻柍鍏夊亾
   ipcMain.handle("settings:get-cli-status", async () => {
     try {
       return {
@@ -1005,7 +907,7 @@ export function registerSettingsIpc(opts: SettingsIpcOptions = {}): void {
     }
   });
 
-  // ── 安装 CLI（老用户迁移入口，默认不阻断其它设置流程） ──
+  // 闁冲厜鍋撻柍鍏夊亾 閻庣懓顦抽ˉ?CLI闁挎稑鐗愰埀顑胯兌閺併倝骞嬮悿顖滆缂佸顕ч崣鍡涘矗閿濆繒绀夊娑欘焾椤撶粯绋夊澶嬧枎闁哄偆鍘奸崣鍓р偓鐟板暢椤旀洜绱旈鐣屻偊缂佸顑戠槐?闁冲厜鍋撻柍鍏夊亾
   ipcMain.handle("settings:install-cli", async () => {
     const result = await installCli();
     if (result.success) {
@@ -1016,7 +918,7 @@ export function registerSettingsIpc(opts: SettingsIpcOptions = {}): void {
     return result;
   });
 
-  // ── 卸载 CLI（移除 wrapper + PATH 注入块） ──
+  // 闁冲厜鍋撻柍鍏夊亾 闁告鐡曞ù?CLI闁挎稑鐗忎簺闂?wrapper + PATH 婵炲鍔岄崣鍡涘锤濡ゅ绀?闁冲厜鍋撻柍鍏夊亾
   ipcMain.handle("settings:uninstall-cli", async () => {
     const result = await uninstallCli();
     if (result.success) {
@@ -1027,7 +929,7 @@ export function registerSettingsIpc(opts: SettingsIpcOptions = {}): void {
     return result;
   });
 
-  // ── 列出配置备份与恢复元数据 ──
+  // 闁冲厜鍋撻柍鍏夊亾 闁告帗顨呴崵顓㈡煀瀹ュ洨鏋傚璺烘矗閸炪倖绋夋惔顫垝濠㈣泛绉撮崢鎾诲极閻楀牆绁?闁冲厜鍋撻柍鍏夊亾
   ipcMain.handle("settings:list-config-backups", async () => {
     try {
       return { success: true, data: getConfigRecoveryData() };
@@ -1036,12 +938,12 @@ export function registerSettingsIpc(opts: SettingsIpcOptions = {}): void {
     }
   });
 
-  // ── 从指定备份文件恢复配置 ──
+  // 闁冲厜鍋撻柍鍏夊亾 濞寸姴瀛╃€垫氨鈧鑹鹃ˇ顒佺閼恒儲鐎ù鐘哄煐娴狀喗寰勫澶婂赋缂?闁冲厜鍋撻柍鍏夊亾
   ipcMain.handle("settings:restore-config-backup", async (_event, params) => {
     const fileName = typeof params?.fileName === "string" ? params.fileName : "";
     try {
       if (!fileName) {
-        return { success: false, message: "请选择要恢复的备份文件。" };
+        return { success: false, message: "Backup file name is required." };
       }
       restoreUserConfigBackup(fileName);
       return { success: true };
@@ -1050,7 +952,7 @@ export function registerSettingsIpc(opts: SettingsIpcOptions = {}): void {
     }
   });
 
-  // ── 一键恢复最近一次可启动快照 ──
+  // 闁冲厜鍋撻柍鍏夊亾 濞戞挴鍋撻梺娆惧枟娴狀喗寰勫鍡樹粯閺夆晜鍨崇粩鏉戔枎閳ュ啿璁查柛姘煎灠婵晞绠涢銈呭季 闁冲厜鍋撻柍鍏夊亾
   ipcMain.handle("settings:restore-last-known-good", async () => {
     try {
       restoreLastKnownGoodConfigSnapshot();
@@ -1060,8 +962,8 @@ export function registerSettingsIpc(opts: SettingsIpcOptions = {}): void {
     }
   });
 
-  // ── 恢复配置：删除 openclaw.json 并重启应用，保留历史目录 ──
-  // 返回 OneClaw 和 OpenClaw 版本信息
+  // 闁冲厜鍋撻柍鍏夊亾 闁诡厹鍨归ˇ鏌ユ煀瀹ュ洨鏋傞柨娑欒壘閸樻稒寰勯崶锕€鏁?openclaw.json闁挎稑鑻崯鈧繛鎾虫噽閳规牠鐛崼鏇炴闁告凹鍨扮花鏌ユ偨椤帞绀勫ǎ鍥ㄧ箘閺嗏偓闁告ê妫楄ぐ鍫曟儎椤旇偐绉块柨?闁冲厜鍋撻柍鍏夊亾
+  // 閺夆晜鏌ㄥú?OneClaw 闁?OpenClaw 闁绘鐗婂﹢鐗堢┍閳╁啩绱?
   ipcMain.handle("settings:get-about-info", async () => {
     const oneClawVersion = app.getVersion();
     let openClawVersion = "unknown";
@@ -1076,28 +978,26 @@ export function registerSettingsIpc(opts: SettingsIpcOptions = {}): void {
 
   ipcMain.handle("settings:reset-config-and-relaunch", async () => {
     try {
-      const configPath = resolveUserConfigPath();
-      if (fs.existsSync(configPath)) {
-        fs.unlinkSync(configPath);
-      }
+      const resetResult = backupThenClearUserConfig();
+      const configPath = resetResult.configPath;
 
-      // 删除所有影响 detectOwnership() 判定的标记文件，确保重启后进入 Setup
+      // 闁告帞濞€濞呭酣骞嶉埀顒勫嫉婢跺﹤顨涢柛?detectOwnership() 闁告帇鍊曢悾楣冩儍閸曨剛鍨奸悹浣哄閺嬪啯绂掔拋鍦缁绢収鍠曠换姘舵煂瀹ュ懏鍎欓柛姘唉缁绘﹢宕?Setup
       const stateDir = resolveUserStateDir();
       for (const marker of [
-        resolveOneclawConfigPath(),                                   // "oneclaw" 归属标记
-        path.join(stateDir, "openclaw-setup-baseline.json"),          // "legacy-oneclaw" 标记
-        path.join(stateDir, "openclaw.last-known-good.json"),         // last-known-good 快照
+        resolveOneclawConfigPath(),                                   // "oneclaw" 鐟滅増甯掗惈姗€寮介崶顏嶅敹
+        path.join(stateDir, "openclaw-setup-baseline.json"),          // "legacy-oneclaw" 闁哄秴娲╅?
+        path.join(stateDir, "openclaw.last-known-good.json"),         // last-known-good 闊浂鍋嗛崣?
       ]) {
         if (fs.existsSync(marker)) {
           fs.unlinkSync(marker);
         }
       }
 
-      // 清除 BrowserWindow 的 localStorage（分享弹窗计数器等），确保恢复出厂后状态彻底重置
+      // 婵炴挸鎳樺▍?BrowserWindow 闁?localStorage闁挎稑鐗嗛崹搴㈢椤愩垼鍓ㄧ紒鎰殙椤撴悂寮弶鎸庣彜缂佹稑顧€缁辨岸鏁嶅畝鈧垾妯荤┍濠靛洣鍒掑璺虹Т閸ゎ參宕㈤崒姘€甸柣妯垮煐閳ь兛绀佹禍銈嗘償閺囥垹娅㈢紓?
       try {
         await session.defaultSession.clearStorageData({ storages: ["localstorage"] });
       } catch {
-        // 清理失败不阻塞重启
+        // 婵炴挸鎳愰幃濠冨緞鏉堫偉袝濞戞挸绉瑰Ο鍡樼箙閻愬搫娅㈤柛?
       }
 
       app.relaunch();
@@ -1109,6 +1009,7 @@ export function registerSettingsIpc(opts: SettingsIpcOptions = {}): void {
         success: true,
         data: {
           configPath,
+          backupPath: resetResult.backupPath,
           preservedStateDir: resolveUserStateDir(),
         },
       };
@@ -1117,9 +1018,10 @@ export function registerSettingsIpc(opts: SettingsIpcOptions = {}): void {
     }
   });
 
+  }
 }
 
-// 读取当前飞书配对模式状态，供主进程轮询器判断是否需要继续监听。
+// 閻犲洩顕цぐ鍥亹閹惧啿顤呭瀣仒閸旂喖鏌婂鍜佸殸婵☆垪鈧磭纭€闁绘鍩栭埀顑跨筏缁辨繃绗熷☉妤€鐦滈弶鈺傜〒閳诲吋娼娆惧殑闁革絻鍔岄崹浠嬪棘椤撶喐笑闁告熬绠撳〒鍓佹啺娴ｇ儤鍩涚紓渚囧幘濞插啴宕ラ閿亾?
 export function getFeishuPairingModeState(): {
   enabled: boolean;
   dmPolicy: "open" | "pairing" | "allowlist";
@@ -1137,7 +1039,7 @@ export function getFeishuPairingModeState(): {
   };
 }
 
-// 读取当前企业微信配对模式状态，供主进程轮询器判断是否需要继续监听。
+// 閻犲洩顕цぐ鍥亹閹惧啿顤呭ù闂存缁楃喎顕ラ璁崇箚闂佹澘绉撮顔嘉熼垾宕囩闁绘鍩栭埀顑跨筏缁辨繃绗熷☉妤€鐦滈弶鈺傜〒閳诲吋娼娆惧殑闁革絻鍔岄崹浠嬪棘椤撶喐笑闁告熬绠撳〒鍓佹啺娴ｇ儤鍩涚紓渚囧幘濞插啴宕ラ閿亾?
 export function getWecomPairingModeState(): {
   enabled: boolean;
   dmPolicy: "open" | "pairing" | "allowlist";
@@ -1154,25 +1056,25 @@ export function getWecomPairingModeState(): {
   };
 }
 
-// 列出飞书待审批请求：解析 CLI 输出并统一成前端可消费结构。
+// 闁告帗顨呴崵顓燁槹閻愭澘濮涚€垫澘鎳庨鎼佸箥绾拋鍤炴慨鐟板亰缁辨壆鎲撮敐鍡欌偓?CLI 閺夊牊鎸搁崵顓㈢嵁閸撲胶鍩犲☉鎾亾闁瑰瓨鍔曟晶鐘电博椤栨艾璁叉繛鎴濈墣閸ㄥ倻绱掗幘瀵糕偓顖炲Υ?
 export async function listFeishuPairingRequests(): Promise<{
   success: boolean;
   requests: FeishuPairingRequestView[];
   message?: string;
 }> {
-  return listChannelPairingRequests(FEISHU_CHANNEL, "读取飞书待审批列表失败", "解析飞书待审批列表失败");
+  return listChannelPairingRequests(FEISHU_CHANNEL, "Failed to list Feishu pairing requests.", "Failed to parse Feishu pairing request response.");
 }
 
-// 列出企业微信待审批请求：解析 CLI 输出并统一成前端可消费结构。
+// 闁告帗顨呴崵顓熷娴ｉ鐟圭€甸偊鍠曟穱濠傤嚗閸涱収鍚€闁圭數顢婇顒€效閸岋妇绐楅悷娆欑稻閻?CLI 閺夊牊鎸搁崵顓㈢嵁閸撲胶鍩犲☉鎾亾闁瑰瓨鍔曟晶鐘电博椤栨艾璁叉繛鎴濈墣閸ㄥ倻绱掗幘瀵糕偓顖炲Υ?
 export async function listWecomPairingRequests(): Promise<{
   success: boolean;
   requests: PairingRequestView[];
   message?: string;
 }> {
-  return listChannelPairingRequests(WECOM_CHANNEL_ID, "读取企业微信待审批列表失败", "解析企业微信待审批列表失败");
+  return listChannelPairingRequests(WECOM_CHANNEL_ID, "Failed to list WeCom pairing requests.", "Failed to parse WeCom pairing request response.");
 }
 
-// 批准飞书配对请求：调用 CLI 并在成功后缓存用户别名用于展示。
+// 闁圭數鎳撻崳顖涱槹閻愭澘濮涢梺鏉跨Т椤曨喚鎷犻柨瀣勾闁挎稒淇洪惃鐔兼偨?CLI 妤犵偠娉涘﹢顏堝箣閹邦剙顫犻柛姘捣缁憋妇鈧稒顭囬弫銈夊箣瀹勬澘鐒奸柛姘Ф閺併倖绂嶆惔锛勬綌缂佲偓閹巻鍋?
 export async function approveFeishuPairingRequest(params: Record<string, unknown>): Promise<{
   success: boolean;
   message?: string;
@@ -1186,7 +1088,7 @@ export async function approveFeishuPairingRequest(params: Record<string, unknown
   return result;
 }
 
-// 批准企业微信配对请求：调用 CLI，并在成功后清理本地拒绝码。
+// 闁圭數鎳撻崳顖涘娴ｉ鐟圭€甸偊鍠曟穱濠囨煀瀹ュ拋鍤犻悹鍥敱閻即鏁嶅宕囨闁?CLI闁挎稑鑻懟鐔煎捶閵婏箑鐏囬柛鏃傚枎閹銆掗崨顖涘€為柡鍫墮濠€鎾箯閹烘梻鍗滈柣顔婚檷閳?
 export async function approveWecomPairingRequest(params: Record<string, unknown>): Promise<{
   success: boolean;
   message?: string;
@@ -1194,7 +1096,7 @@ export async function approveWecomPairingRequest(params: Record<string, unknown>
   return approveChannelPairingRequest(WECOM_CHANNEL_ID, params);
 }
 
-// 拒绝飞书配对请求：当前 openclaw pairing 无 reject 子命令，改为本地忽略当前配对码。
+// 闁归攱甯炵划閿嬵槹閻愭澘濮涢梺鏉跨Т椤曨喚鎷犻柨瀣勾闁挎稒鑹剧紞瀣礈?openclaw pairing 闁?reject 閻庢稒鍔曢幊鈩冪閵堝繒绀夐柡鈧柅娑滅闁哄牜鍓欏﹢纾嬬疀閻ｅ本娈ｇ憸鐗堟尭婢х娀鏌婂鍜佸殸闁活喕闄嶉埀?
 export async function rejectFeishuPairingRequest(params: Record<string, unknown>): Promise<{
   success: boolean;
   message?: string;
@@ -1202,7 +1104,7 @@ export async function rejectFeishuPairingRequest(params: Record<string, unknown>
   return rejectChannelPairingRequest(FEISHU_CHANNEL, params);
 }
 
-// 拒绝企业微信配对请求：当前 openclaw pairing 无 reject 子命令，改为本地忽略当前配对码。
+// 闁归攱甯炵划閿嬪娴ｉ鐟圭€甸偊鍠曟穱濠囨煀瀹ュ拋鍤犻悹鍥敱閻即鏁嶅顒傜Ъ闁?openclaw pairing 闁?reject 閻庢稒鍔曢幊鈩冪閵堝繒绀夐柡鈧柅娑滅闁哄牜鍓欏﹢纾嬬疀閻ｅ本娈ｇ憸鐗堟尭婢х娀鏌婂鍜佸殸闁活喕闄嶉埀?
 export async function rejectWecomPairingRequest(params: Record<string, unknown>): Promise<{
   success: boolean;
   message?: string;
@@ -1210,7 +1112,7 @@ export async function rejectWecomPairingRequest(params: Record<string, unknown>)
   return rejectChannelPairingRequest(WECOM_CHANNEL_ID, params);
 }
 
-// 统一解析某个渠道的待审批列表，并过滤本地 sidecar 里的拒绝码。
+// 缂備胶鍠嶇粩瀵告喆閿濆棛鈧粙寮婚幇顏堝殝婵炴挾濞€娴滈箖鎯冮崟顐ょ閻庡厜鍓濇竟鎺楀礆濡ゅ嫨鈧啴鏁嶇仦鍊熷珯閺夆晛娲﹂幎銈夊嫉椤掆偓濠€?sidecar 闂佹彃鐬煎▓鎴﹀箯閹烘梻鍗滈柣顔婚檷閳?
 async function listChannelPairingRequests(
   channel: string,
   listErrorMessage: string,
@@ -1263,7 +1165,7 @@ async function listChannelPairingRequests(
   }
 }
 
-// 统一执行渠道 pairing approve，避免每个渠道重复拼 CLI 参数。
+// 缂備胶鍠嶇粩鎾箥瑜戦、鎴濄€掗悩璁冲 pairing approve闁挎稑鐭傛导鈺呭礂瀹ュ棛妲ㄥ☉鎿冧簼缁楊參鏌嗛幘璇叉濠㈣泛绉电€?CLI 闁告瑥鍊归弳鐔煎Υ?
 async function approveChannelPairingRequest(
   channel: string,
   params: Record<string, unknown>,
@@ -1273,7 +1175,7 @@ async function approveChannelPairingRequest(
 }> {
   const code = typeof params?.code === "string" ? params.code.trim() : "";
   if (!code) {
-    return { success: false, message: "配对码不能为空。" };
+    return { success: false, message: "Pairing code is required." };
   }
 
   try {
@@ -1281,7 +1183,7 @@ async function approveChannelPairingRequest(
     if (run.code !== 0) {
       return {
         success: false,
-        message: compactCliError(run, `批准配对码失败: ${code}`),
+        message: compactCliError(run, `闁圭數鎳撻崳顖炴煀瀹ュ拋鍤犻柣顔荤閵囨垹鎷? ${code}`),
       };
     }
     removeRejectedPairingCode(resolveRejectedPairingStoreFile(channel), code);
@@ -1291,7 +1193,7 @@ async function approveChannelPairingRequest(
   }
 }
 
-// 当前 openclaw pairing 暂无 reject 子命令，这里统一用本地 sidecar 忽略当前 pairing code。
+// 鐟滅増鎸告晶?openclaw pairing 闁哄棗鍊瑰Λ?reject 閻庢稒鍔曢幊鈩冪閵堝繒绀夐弶鈺傜懇閸ｉ绱掗悢鍓侇伇闁活潿鍔嶅﹢浼村捶?sidecar 闊洨鏅弳鎰亹閹惧啿顤?pairing code闁?
 async function rejectChannelPairingRequest(
   channel: string,
   params: Record<string, unknown>,
@@ -1301,13 +1203,13 @@ async function rejectChannelPairingRequest(
 }> {
   const code = typeof params?.code === "string" ? params.code.trim() : "";
   if (!code) {
-    return { success: false, message: "配对码不能为空。" };
+    return { success: false, message: "Pairing code is required." };
   }
   appendRejectedPairingCode(resolveRejectedPairingStoreFile(channel), code);
   return { success: true };
 }
 
-// 根据配置与授权存储统计当前已授权用户，排除通配符与空值。
+// 闁哄秷顫夊畵渚€鏌婂鍥╂瀭濞戞挸瀛╁鍧楀级閸愩劎鎽犻柛灞诲妿缁櫣鎷嬮垾宕囩Ъ闁告挸绉撮崙锟犲箳閸喐缍€闁活潿鍔嶉崺娑㈡晬鐏炴儳绗撻梻鍕╁€濋埀顒佸哺閸樸倗绮敂璺ㄧ憿缂佸苯鎼埀顒傤儠閳?
 function collectApprovedUserIds(channel: string, configAllowFrom: unknown): string[] {
   const configEntries = normalizeAllowFromEntries(configAllowFrom).filter(
     (entry) => entry !== WILDCARD_ALLOW_ENTRY
@@ -1316,12 +1218,12 @@ function collectApprovedUserIds(channel: string, configAllowFrom: unknown): stri
   return dedupeEntries([...configEntries, ...storeEntries]);
 }
 
-// 返回首配自动批准窗口文件路径（sidecar，不污染 openclaw.json schema）。
+// 閺夆晜鏌ㄥú鏍純閺嶎厼甯抽柤濂変簻婵晠骞嶉悷鏉挎珯缂佹劖顨呰ぐ娑㈠棘閸ワ附顐介悹渚灠缁剁偤鏁嶉崸鐧穌ecar闁挎稑濂旂粭澶娦ч埄鍐帬 openclaw.json schema闁挎稑顦埀?
 function resolveFeishuFirstPairingWindowPath(): string {
   return path.join(resolveUserStateDir(), "credentials", FEISHU_FIRST_PAIRING_WINDOW_FILE);
 }
 
-// 读取首配自动批准窗口状态；解析失败返回 null，保证调用端逻辑简单。
+// 閻犲洩顕цぐ鍥純閺嶎厼甯抽柤濂変簻婵晠骞嶉悷鏉挎珯缂佹劖顨呰ぐ娑㈡偐閼哥鍋撴笟濠勫耿閻熸瑱绲鹃悗鑺ュ緞鏉堫偉袝閺夆晜鏌ㄥú?null闁挎稑濂旂换姘辨嫚娴ｇ晫娈堕柣顫妿椤忣剟鏌呴弰蹇曞竼缂佺姭鍋撻柛妤佹磸閳?
 function readFeishuFirstPairingWindowState(): FeishuFirstPairingWindowState | null {
   const filePath = resolveFeishuFirstPairingWindowPath();
   if (!fs.existsSync(filePath)) {
@@ -1351,7 +1253,7 @@ function readFeishuFirstPairingWindowState(): FeishuFirstPairingWindowState | nu
   }
 }
 
-// 原子写入首配窗口状态文件，所有窗口相关状态变更都通过这个函数落盘。
+// 闁告鍠庨悺娆撳礃濞嗗繐寮冲Λ锝嗙墵閸樸倗绮ｅΔ鈧ぐ娑㈡偐閼哥鍋撴担瑙勭€ù鐘侯啇缁辨繈骞嶉埀顒勫嫉婢跺瞼宕堕柛娆欑悼濞村宕楀畷鍥﹂柟顑跨瑜板寮撮幘顔煎幋闂侇偅淇虹换鍐╂交濞嗗酣鍤嬮柛鎴ｅГ閺嗙喖鎷冮悾灞剧８闁?
 function writeFeishuFirstPairingWindowState(state: FeishuFirstPairingWindowState): void {
   const filePath = resolveFeishuFirstPairingWindowPath();
   const dir = path.dirname(filePath);
@@ -1359,7 +1261,7 @@ function writeFeishuFirstPairingWindowState(state: FeishuFirstPairingWindowState
   fs.writeFileSync(filePath, JSON.stringify(state, null, 2), "utf-8");
 }
 
-// 开启首配自动批准时间窗；若已消费过则保持熔断，不再重开窗口。
+// 鐎殿喒鍋撻柛姘煎灦椤╁鏌婂鍫濇闁告柣鍔嶆竟鎺楀礄閸℃ɑ顦ч梻鍌氼嚟閻涖儵鏁嶅☉婊冾仧鐎圭寮剁粔椋庢嫻绾懐绠栭柛鎺撶懁缁绘岸骞愭担鍝勬櫖闁哄偆鍙忕槐婵囩▔瀹ュ懎鏅欓梺鎻掔Т缁辨垹绮ｅΔ鈧ぐ娑㈠Υ?
 function openFeishuFirstPairingWindow(nowMs = Date.now()): void {
   const prev = readFeishuFirstPairingWindowState();
   if (prev?.consumedAtMs) {
@@ -1373,7 +1275,7 @@ function openFeishuFirstPairingWindow(nowMs = Date.now()): void {
   });
 }
 
-// 关闭首配自动批准窗口：未消费场景删除文件；已消费场景保留熔断标记。
+// 闁稿繑濞婂Λ瀛橈純閺嶎厼甯抽柤濂変簻婵晠骞嶉悷鏉挎珯缂佹劖顨呰ぐ娑㈡晬濮橆厽寮撴繛鎴濈墣閸ㄥ倿宕烽悜妯荤彲闁告帞濞€濞呭酣寮崶锔筋偨闁挎稒绋戦崙鈥斥槈閸絽鐎柛锔惧劋濞呮瑦绌卞┑鍫熸畬闁绘梹姊归弻鍥冀閸ヮ亶鍞堕柕?
 export function closeFeishuFirstPairingWindow(): void {
   const filePath = resolveFeishuFirstPairingWindowPath();
   const prev = readFeishuFirstPairingWindowState();
@@ -1385,7 +1287,7 @@ export function closeFeishuFirstPairingWindow(): void {
   }
 }
 
-// 标记首配窗口已消费，无论批准成功或失败都熔断，避免重试风暴。
+// 闁哄秴娲╅鍥純閺嶎厼甯崇紒鎰殔瑜版稑顔忛崣澶屝ラ悹鎰缁辨繈寮悩渚晥闁圭數鎳撻崳顖炲箣閹邦剙顫犻柟瀛樼墪閵囨垹鎷归妷鈺佸幋闁绘梹姊归弻鍥晬瀹€鍕級闁稿繐绉归崳鍝ユ嫚閺囥埄妫戦柡鍡樼暘閳?
 export function consumeFeishuFirstPairingWindow(userId: string): void {
   const nowMs = Date.now();
   const prev = readFeishuFirstPairingWindowState();
@@ -1405,7 +1307,7 @@ export function consumeFeishuFirstPairingWindow(userId: string): void {
   });
 }
 
-// 判断首配窗口是否处于生效期；过期或已消费都返回 false，并自动清理过期窗口。
+// 闁告帇鍊栭弻鍥純閺嶎厼甯崇紒鎰殔瑜版盯寮伴姘剨濠㈣泛瀚花顒勬偨閻斿憡娅忛柡鍫㈠櫐缁辫鲸娼婚崶銊﹀焸闁瑰瓨鐗曢崙鈥斥槈閸絽鐎梺顔尖偓鐔虹闁?false闁挎稑鑻懟鐔兼嚊椤忓嫬袟婵炴挸鎳愰幃濠冩交閸ャ劍鍩傜紒鎰殔瑜版盯濡?
 export function isFeishuFirstPairingWindowActive(nowMs = Date.now()): boolean {
   const state = readFeishuFirstPairingWindowState();
   if (!state) {
@@ -1421,7 +1323,7 @@ export function isFeishuFirstPairingWindowActive(nowMs = Date.now()): boolean {
   return nowMs >= state.openedAtMs;
 }
 
-// 根据当前飞书配置与授权状态维护首配窗口，避免把窗口状态散落在多个调用点。
+// 闁哄秷顫夊畵浣姐亹閹惧啿顤呭瀣仒閸旂喖鏌婂鍥╂瀭濞戞挸瀛╁鍧楀级閸愵亜笑闁诡兛鑳跺ǎ顕€骞庨妶澶樻禃闂佹澘绉堕悰銉╁矗閿濆繒绀夐梺顒€鐏濋崢銈夊箮婵犲嫮宕堕柛娆欑悼婵悂骞€娴ｈ娈犻柦鈧挊澶嬭含濠㈣埖鐭柌婊呮嫬閸愵亝鏆忛柣鎰畭閳?
 function reconcileFeishuFirstPairingWindow(config: any): void {
   const enabled = config?.plugins?.entries?.feishu?.enabled === true;
   if (!enabled) {
@@ -1445,7 +1347,7 @@ function reconcileFeishuFirstPairingWindow(config: any): void {
   openFeishuFirstPairingWindow();
 }
 
-// 统一运行 openclaw CLI 子命令，复用 OneClaw 内嵌 runtime 与网关入口。
+// 缂備胶鍠嶇粩瀛樻交閹邦垼鏀?openclaw CLI 閻庢稒鍔曢幊鈩冪閵堝繒绀夊璺虹Ф閺?OneClaw 闁告劕鎳庣粊?runtime 濞戞挸娴风紞澶愬礂閸愭彃寮抽柛娆欑祷閳?
 async function runGatewayCli(args: string[]): Promise<CliRunResult> {
   const nodeBin = resolveNodeBin();
   const entry = resolveGatewayEntry();
@@ -1459,7 +1361,7 @@ async function runGatewayCli(args: string[]): Promise<CliRunResult> {
       env: {
         ...process.env,
         ...resolveNodeExtraEnv(),
-        // 统一关闭入口二次 respawn，保证所有短命 CLI 子命令都静默运行
+        // 缂備胶鍠嶇粩鎾礂閹惰姤锛旈柛蹇嬪劚瑜版稒绂嶇仦缁㈠仹 respawn闁挎稑濂旂换姘辨嫚娴ｇ懓顣查柡鍫濐槺閻擃參宕?CLI 閻庢稒鍔曢幊鈩冪閵堝鍘撮梻鍫熺懇缁垱娼婚幇顖ｆ斀
         OPENCLAW_NO_RESPAWN: "1",
         PATH: envPath,
         FORCE_COLOR: "0",
@@ -1487,14 +1389,14 @@ async function runGatewayCli(args: string[]): Promise<CliRunResult> {
   });
 }
 
-// 安全解析 JSON，失败时返回 null，避免界面因格式波动崩溃。
+// 閻庣懓顦崣蹇曟喆閿濆棛鈧?JSON闁挎稑鑻妵鎴犳嫻閵夛附顦ч弶鈺傛煥濞?null闁挎稑鐭傛导鈺呭礂瀹ュ洦娅曢梻鍫涘灩濞叉粓寮介悡搴ｇ婵炲鍨规慨鈺佺暦閳哄倻鐨鹃柕?
 function parseJsonSafe(text: string): any | null {
   const trimmed = text.trim();
   if (!trimmed) return null;
   try {
     return JSON.parse(trimmed);
   } catch {
-    // CLI 可能在 JSON 前打印插件日志，这里回退到“提取末尾 JSON 对象”策略。
+    // CLI 闁告瑯鍨甸崗姗€宕?JSON 闁告挸绉垫晶锕傚础閻楀牆绲诲ù鐘哄煐濡晞绠涘Δ瀣閺夆晜鐟╅崳鐑藉炊閻愯　鍋撻埀顒勫礆閹垫枼鍋撳鍕倒闁告瑦鐗楀﹢顖滀焊?JSON 閻庣數顢婇挅鍕灳濠靛牏鎽滈柣锝冨劘閳?
     const match = trimmed.match(/\{[\s\S]*\}\s*$/);
     if (!match) return null;
     try {
@@ -1505,7 +1407,7 @@ function parseJsonSafe(text: string): any | null {
   }
 }
 
-// 压缩 CLI 错误信息，优先保留有用输出并附带兜底描述。
+// 闁告ê顑囩紓?CLI 闂佹寧鐟ㄩ銈嗙┍閳╁啩绱栭柨娑樺缁鳖參宕楅崼婊呯闁伙絾鐟﹀﹢渚€鎮介妸銊х炕闁告垵鎼懟鐔兼⒔閸曨偆鏁ㄩ柛蹇旂矊缁ㄦ娊骞撹箛姘墯闁?
 function compactCliError(run: CliRunResult, fallback: string): string {
   const out = run.stderr.trim() || run.stdout.trim();
   if (!out) return fallback;
@@ -1513,7 +1415,7 @@ function compactCliError(run: CliRunResult, fallback: string): string {
   return firstLine ? firstLine.trim() : fallback;
 }
 
-// 规范化 allowFrom 列表，统一转换为非空字符串并去重。
+// 閻熸瑥瀚€垫牠宕?allowFrom 闁告帗顨夐妴鍐晬瀹€鈧划鐑樼▔閳ь剚娼浣稿簥濞戞挻妞藉顏嗙矚閸濆嫮鎽熺紒妤嬬細鐟曞棝鐛捄鍝勭闂佹彃绉查埀?
 function normalizeAllowFromEntries(input: unknown): string[] {
   if (!Array.isArray(input)) return [];
   return dedupeEntries(
@@ -1523,12 +1425,12 @@ function normalizeAllowFromEntries(input: unknown): string[] {
   );
 }
 
-// 数组去重并保持原始顺序。
+// 闁轰焦澹嗙划宥夊储婵犳艾娅㈡鐐存构缁绘岸骞愭担绋挎枾濠殿喖顑夐妴搴㈡償韫囧鍋?
 function dedupeEntries(items: string[]): string[] {
   return [...new Set(items)];
 }
 
-// 统一解析 pairing allowFrom store 文件（由 openclaw pairing approve 写入）。
+// 缂備胶鍠嶇粩瀵告喆閿濆棛鈧?pairing allowFrom store 闁哄倸娲ｅ▎銏ゆ晬閸垺鏆?openclaw pairing approve 闁告劖鐟ラ崣鍡涙晬婢跺牃鍋?
 function readChannelAllowFromStore(channel: string): string[] {
   return readChannelAllowFromStoreEntriesFromFs(
     path.join(resolveUserStateDir(), "credentials"),
@@ -1536,7 +1438,7 @@ function readChannelAllowFromStore(channel: string): string[] {
   );
 }
 
-// 写入 pairing allowFrom store 文件（兼容保留原有字段）。
+// 闁告劖鐟ラ崣?pairing allowFrom store 闁哄倸娲ｅ▎銏ゆ晬閸繂鎮戦悗褰掆偓娑氱闁伙絾鐟ョ敮顐﹀嫉婢跺﹦鎽熸繛鍫㈩暜缁辨岸濡?
 function writeChannelAllowFromStore(channel: string, entries: string[]): void {
   writeChannelAllowFromStoreEntriesFromFs(
     path.join(resolveUserStateDir(), "credentials"),
@@ -1545,7 +1447,7 @@ function writeChannelAllowFromStore(channel: string, entries: string[]): void {
   );
 }
 
-// 读取本地“已拒绝配对码”sidecar，用于过滤待审批列表。
+// 閻犲洩顕цぐ鍥嫉椤掆偓濠€鎾灳濠婂啫鍤掗柟閿嬪笧缁兘鏌婂鍜佸殸闁活喕璁查埀顒佸珘idecar闁挎稑鐬奸弫銈嗙鎼淬倗绠栨繝濞垮€曠欢鐔衡偓鍏夊墲婢规帡宕氬Δ鍕┾偓鍐Υ?
 function readRejectedPairingStore(fileName: string): FeishuRejectedPairingStore {
   const filePath = path.join(resolveUserStateDir(), "credentials", fileName);
   if (!fs.existsSync(filePath)) {
@@ -1561,7 +1463,7 @@ function readRejectedPairingStore(fileName: string): FeishuRejectedPairingStore 
   }
 }
 
-// 写入本地“已拒绝配对码”sidecar，空数组时删除文件。
+// 闁告劖鐟ラ崣鍡涘嫉椤掆偓濠€鎾灳濠婂啫鍤掗柟閿嬪笧缁兘鏌婂鍜佸殸闁活喕璁查埀顒佸珘idecar闁挎稑鐬奸埞鏍极閹殿喚鐭嬮柡鍐硾閸ㄥ綊姊介妶鍡樼€ù鐘虹堪閳?
 function writeRejectedPairingStore(fileName: string, codes: string[]): void {
   const normalized = normalizeAllowFromEntries(codes);
   const dir = path.join(resolveUserStateDir(), "credentials");
@@ -1580,12 +1482,12 @@ function writeRejectedPairingStore(fileName: string, codes: string[]): void {
   fs.writeFileSync(filePath, JSON.stringify(payload, null, 2), "utf-8");
 }
 
-// 读取某个渠道的拒绝码列表。
+// 閻犲洩顕цぐ鍥蓟閹邦亪鍤嬫繛鎾跺█娴滈箖鎯冮崟顒€鐝曠紓浣圭箘閻栨粓宕氬Δ鍕┾偓鍐Υ?
 function readRejectedPairingCodes(fileName: string): string[] {
   return readRejectedPairingStore(fileName).codes;
 }
 
-// 追加单个拒绝码（幂等）。
+// 閺夆晞妫勬慨鐐哄础閺囨岸鍤嬮柟閿嬪笧缁兘鎯嶆笟濠勭妤犵偛鍊婚悺鎴︽晬婢跺牃鍋?
 function appendRejectedPairingCode(fileName: string, code: string): void {
   const trimmed = String(code ?? "").trim();
   if (!trimmed) return;
@@ -1595,7 +1497,7 @@ function appendRejectedPairingCode(fileName: string, code: string): void {
   writeRejectedPairingStore(fileName, store.codes);
 }
 
-// 移除单个拒绝码（批准后自动清理）。
+// 缂佸顭峰▍搴ㄥ础閺囨岸鍤嬮柟閿嬪笧缁兘鎯嶆笟濠勭闁圭數鎳撻崳顖炲触鎼淬倕娈伴柛鏂诲妽缁斿鎮堕崱顓犵闁?
 function removeRejectedPairingCode(fileName: string, code: string): void {
   const trimmed = String(code ?? "").trim();
   if (!trimmed) return;
@@ -1605,7 +1507,7 @@ function removeRejectedPairingCode(fileName: string, code: string): void {
   writeRejectedPairingStore(fileName, nextCodes);
 }
 
-// 清理过期拒绝码：只保留当前 pending 列表里仍存在的 code。
+// 婵炴挸鎳愰幃濠冩交閸ャ劍鍩傞柟閿嬪笧缁兘鎯嶆笟濠勭獥闁告瑯浜欑换姘舵偩濞嗗繒绉奸柛?pending 闁告帗顨夐妴鍐煂鐏炶偐鐭濋悗娑櫭﹢顏堟儍?code闁?
 function pruneRejectedPairingCodes(fileName: string, activeCodes: Set<string>): void {
   const store = readRejectedPairingStore(fileName);
   if (store.codes.length === 0) return;
@@ -1614,7 +1516,7 @@ function pruneRejectedPairingCodes(fileName: string, activeCodes: Set<string>): 
   writeRejectedPairingStore(fileName, nextCodes);
 }
 
-// 渠道专用 sidecar 文件映射；目前只有飞书和企业微信会走这套拒绝码逻辑。
+// 婵炴挾濞€娴滅偓绋夐幘鑸垫殢 sidecar 闁哄倸娲ｅ▎銏ゅ及閻樿尙娈搁柨娑欑〒濞蹭即宕滃鍛锭闁哄牆顦甸ˉ锝嗙▕閿曗偓閹风増瀵兼担椋庣懝鐎甸偊鍠曟穱濠冨濮樺疇娉查弶鈺傜懃椤ㄦ粓骞忛幒鏃傚崪闁活喕绶氶埀顒佹缁额偊濡?
 function resolveRejectedPairingStoreFile(channel: string): string {
   if (channel === WECOM_CHANNEL_ID) {
     return WECOM_REJECTED_PAIRING_STORE_FILE;
@@ -1622,37 +1524,37 @@ function resolveRejectedPairingStoreFile(channel: string): string {
   return FEISHU_REJECTED_PAIRING_STORE_FILE;
 }
 
-// 读取飞书 allowFrom store 文件（由 openclaw pairing approve 写入）。
+// 閻犲洩顕цぐ鍥槹閻愭澘濮?allowFrom store 闁哄倸娲ｅ▎銏ゆ晬閸垺鏆?openclaw pairing approve 闁告劖鐟ラ崣鍡涙晬婢跺牃鍋?
 function readFeishuAllowFromStore(): string[] {
   return readChannelAllowFromStore(FEISHU_CHANNEL);
 }
 
-// 写入飞书 allowFrom store 文件（兼容保留原有字段）。
+// 闁告劖鐟ラ崣鍡橆槹閻愭澘濮?allowFrom store 闁哄倸娲ｅ▎銏ゆ晬閸繂鎮戦悗褰掆偓娑氱闁伙絾鐟ョ敮顐﹀嫉婢跺﹦鎽熸繛鍫㈩暜缁辨岸濡?
 function writeFeishuAllowFromStore(entries: string[]): void {
   writeChannelAllowFromStore(FEISHU_CHANNEL, entries);
 }
 
-// 读取拒绝码列表。
+// 閻犲洩顕цぐ鍥箯閹烘梻鍗滈柣顔荤閸亞鎮伴妸锝傚亾?
 function readFeishuRejectedPairingCodes(): string[] {
   return readRejectedPairingCodes(FEISHU_REJECTED_PAIRING_STORE_FILE);
 }
 
-// 追加单个拒绝码（幂等）。
+// 閺夆晞妫勬慨鐐哄础閺囨岸鍤嬮柟閿嬪笧缁兘鎯嶆笟濠勭妤犵偛鍊婚悺鎴︽晬婢跺牃鍋?
 function appendFeishuRejectedPairingCode(code: string): void {
   appendRejectedPairingCode(FEISHU_REJECTED_PAIRING_STORE_FILE, code);
 }
 
-// 移除单个拒绝码（批准后自动清理）。
+// 缂佸顭峰▍搴ㄥ础閺囨岸鍤嬮柟閿嬪笧缁兘鎯嶆笟濠勭闁圭數鎳撻崳顖炲触鎼淬倕娈伴柛鏂诲妽缁斿鎮堕崱顓犵闁?
 function removeFeishuRejectedPairingCode(code: string): void {
   removeRejectedPairingCode(FEISHU_REJECTED_PAIRING_STORE_FILE, code);
 }
 
-// 清理过期拒绝码：只保留当前 pending 列表里仍存在的 code。
+// 婵炴挸鎳愰幃濠冩交閸ャ劍鍩傞柟閿嬪笧缁兘鎯嶆笟濠勭獥闁告瑯浜欑换姘舵偩濞嗗繒绉奸柛?pending 闁告帗顨夐妴鍐煂鐏炶偐鐭濋悗娑櫭﹢顏堟儍?code闁?
 function pruneFeishuRejectedPairingCodes(activeCodes: Set<string>): void {
   pruneRejectedPairingCodes(FEISHU_REJECTED_PAIRING_STORE_FILE, activeCodes);
 }
 
-// 补全授权条目的可读名称：用户/群聊优先查缓存，未命中则实时查询并回写缓存。
+// 閻炴稏鍎遍崣蹇涘箳閸喐缍€闁哄绱曞ú浼存儍閸曨偄璁查悹鍥嚙閹洜绮旂敮顔剧獥闁活潿鍔嶉崺?缂傚洢鍊涙禍鐗堝濡搫甯ラ柡灞诲劤缁憋妇鈧稒锕槐婵嬪嫉椤忓嫭鍤掑☉鎿冨幖閸垳鈧湱鍋炲鍌炲蓟閵夘煈鍤勬鐐舵硾濞叉牠宕樺▎鎴犲閻庢稒菧閳?
 async function enrichFeishuEntryNames(
   entries: FeishuAuthorizedEntryView[],
   feishuConfig: Record<string, unknown>,
@@ -1701,7 +1603,7 @@ async function enrichFeishuEntryNames(
   return entries;
 }
 
-// 获取 tenant_access_token（内存缓存，过期前一分钟自动刷新）。
+// 闁兼儳鍢茶ぐ?tenant_access_token闁挎稑鐗嗛崬瀵糕偓娑欘焽缁憋妇鈧稒锕槐婵囨交閸ャ劍鍩傞柛鎾崇С缁旀挳宕氶崱娑欏闁煎浜滄慨鈺呭礆闁垮鐓€闁挎稑顦埀?
 async function resolveFeishuTenantAccessToken(appId: string, appSecret: string): Promise<string> {
   const now = Date.now();
   if (
@@ -1734,7 +1636,7 @@ async function resolveFeishuTenantAccessToken(appId: string, appSecret: string):
   return token;
 }
 
-// 根据 open_id 查询用户名。
+// 闁哄秷顫夊畵?open_id 闁哄被鍎撮妤呮偨閵婏箑鐓曢柛姘Р閳?
 async function fetchFeishuUserNameByOpenId(token: string, openId: string): Promise<string> {
   const encodedId = encodeURIComponent(openId);
   const url = `${FEISHU_OPEN_API_BASE}/contact/v3/users/${encodedId}?user_id_type=open_id`;
@@ -1749,7 +1651,7 @@ async function fetchFeishuUserNameByOpenId(token: string, openId: string): Promi
   return String(payload?.data?.user?.name ?? payload?.data?.name ?? "").trim();
 }
 
-// 根据 chat_id 查询群名称。
+// 闁哄秷顫夊畵?chat_id 闁哄被鍎撮妤冪礃閵堝懏鍊崇紒澶庡焽閳?
 async function fetchFeishuChatNameById(token: string, chatId: string): Promise<string> {
   const encodedId = encodeURIComponent(chatId);
   const url = `${FEISHU_OPEN_API_BASE}/im/v1/chats/${encodedId}`;
@@ -1764,7 +1666,7 @@ async function fetchFeishuChatNameById(token: string, chatId: string): Promise<s
   return String(payload?.data?.chat?.name ?? payload?.data?.name ?? "").trim();
 }
 
-// 带超时的 JSON 请求；失败返回 null，不阻塞主流程。
+// 閻㈩垽绠掔粔鎾籍閸撲焦鐣?JSON 閻犲洭鏀遍惇浼存晬濞戞ǜ浜奸悹鎰╁劥缁绘垿宕?null闁挎稑濂旂粭澶愭⒓鐠囧樊鏁氬☉鎾剁帛缁侊妇绮欑€ｃ劉鍋?
 async function fetchJsonWithTimeout(url: string, init: RequestInit): Promise<any | null> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 5000);
@@ -1780,7 +1682,7 @@ async function fetchJsonWithTimeout(url: string, init: RequestInit): Promise<any
   }
 }
 
-// 归一化 DM 策略，非法值回退为默认值。
+// 鐟滅増甯婄粩鎾礌?DM 缂佹稒鐗滈弳鎰版晬瀹€鍕婵炲娲栭埀顒傚帶濞叉牠鏌呴埀顒佺▔濞差亞甯涢悹浣靛€曢埀顒傤儠閳?
 function normalizeDmPolicy(input: unknown, fallback: "open" | "pairing" | "allowlist"): "open" | "pairing" | "allowlist" {
   const value = String(input ?? "").trim().toLowerCase();
   if (value === "open" || value === "pairing" || value === "allowlist") {
@@ -1789,7 +1691,7 @@ function normalizeDmPolicy(input: unknown, fallback: "open" | "pairing" | "allow
   return fallback;
 }
 
-// 归一化群聊策略，非法值回退为默认值。
+// 鐟滅増甯婄粩鎾礌閺嶎偄鍙冮柤鍗烇功閻°儵鎮鹃妷顖滅闂傚牏鍋炵涵鍫曞磹閻撳孩绀€闂侇偀鍋撳☉鎾存そ缁垳鎷嬮妶鍛亾缁楄　鍋?
 function normalizeGroupPolicy(input: unknown, fallback: "open" | "allowlist" | "disabled"): "open" | "allowlist" | "disabled" {
   const value = String(input ?? "").trim().toLowerCase();
   if (value === "open" || value === "allowlist" || value === "disabled") {
@@ -1798,7 +1700,7 @@ function normalizeGroupPolicy(input: unknown, fallback: "open" | "allowlist" | "
   return fallback;
 }
 
-// 归一化话题会话策略，非法值回退为默认值。
+// 鐟滅増甯婄粩鎾礌閺嶎剛妯堝Λ鐗埫肩槐鎵嫚濠靛牏鎽滈柣锝冨劵缁辨繈妫冮悙瀵搞€婇柛濠勫帶濞叉牠鏌呴埀顒佺▔濞差亞甯涢悹浣靛€曢埀顒傤儠閳?
 function normalizeTopicSessionMode(input: unknown, fallback: "enabled" | "disabled"): "enabled" | "disabled" {
   const value = String(input ?? "").trim().toLowerCase();
   if (value === "enabled" || value === "disabled") {
@@ -1807,7 +1709,7 @@ function normalizeTopicSessionMode(input: unknown, fallback: "enabled" | "disabl
   return fallback;
 }
 
-// 归一化私聊会话范围，非法值回退为默认值。
+// 鐟滅増甯婄粩鎾礌閺嶎偒娼岄柤鍗烇梗缁辨壆鎷犲┑濠傜槺闁搞儴鎻槐婵嬫閻愬銆婇柛濠勫帶濞叉牠鏌呴埀顒佺▔濞差亞甯涢悹浣靛€曢埀顒傤儠閳?
 function normalizeDmScope(
   input: unknown,
   fallback: "main" | "per-peer" | "per-channel-peer" | "per-account-channel-peer"
@@ -1824,17 +1726,17 @@ function normalizeDmScope(
   return fallback;
 }
 
-// 判断字符串是否像飞书用户 open_id。
+// 闁告帇鍊栭弻鍥┾偓娑欘殘椤戜焦绋夐崣澶嬓﹂柛姘剧畱閸庢碍顦伴悙鏉垮闁活潿鍔嶉崺?open_id闁?
 function looksLikeFeishuUserId(value: string): boolean {
   return /^ou_[A-Za-z0-9]/.test(value);
 }
 
-// 判断字符串是否像飞书群聊 chat_id。
+// 闁告帇鍊栭弻鍥┾偓娑欘殘椤戜焦绋夐崣澶嬓﹂柛姘剧畱閸庢碍顦伴悙鏉垮缂傚洢鍊涙禍?chat_id闁?
 function looksLikeFeishuGroupId(value: string): boolean {
   return /^oc_[A-Za-z0-9]/.test(value);
 }
 
-// 将授权条目转换为前端展示模型，优先返回可读名称。
+// 閻忓繐妫欏鍧楀级閸愨晜钂嬮柣鈺婂枦濞村棝骞戦～顓＄闁告挸绉堕顒備沪閺囩姰浠涙俊顖椻偓宕団偓鐑芥晬鐏炶偐鍠橀柛蹇撶墣缁绘垿宕堕悙鎻掕閻犲洩顕ч幃鏇犵矓閼割兘鍋?
 function toAuthorizedEntryView(kind: "user" | "group", id: string, aliases: FeishuAliasStore): FeishuAuthorizedEntryView {
   const trimmedId = String(id ?? "").trim();
   const aliasName = kind === "user" ? aliases.users[trimmedId] : aliases.groups[trimmedId];
@@ -1851,7 +1753,7 @@ function toAuthorizedEntryView(kind: "user" | "group", id: string, aliases: Feis
   return { kind, id: trimmedId, name: "" };
 }
 
-// 授权条目排序：优先按可读名称，再按原始 ID。
+// 闁瑰搫鐗婂鍫ュ级閿涘嫭绐楅柟鐑樺笒缁參鏁嶅顐ゅ枠闁稿繐鐗婄€垫粓宕ｉ婵愬殺闁告艾绉惰ⅷ闁挎稑鑻崯鈧柟绋款槸鐢偅鎱?ID闁?
 function compareAuthorizedEntry(a: FeishuAuthorizedEntryView, b: FeishuAuthorizedEntryView): number {
   const aLabel = (a.name || a.id).toLowerCase();
   const bLabel = (b.name || b.id).toLowerCase();
@@ -1860,7 +1762,7 @@ function compareAuthorizedEntry(a: FeishuAuthorizedEntryView, b: FeishuAuthorize
   return a.id.localeCompare(b.id, "en");
 }
 
-// 读取飞书授权别名（用于把 ID 显示成用户/群聊名称）。
+// 閻犲洩顕цぐ鍥槹閻愭澘濮涢柟鍝勭墛濞煎牓宕氶銏″€抽柨娑樼墢閺併倖绂嶆惔銏犖?ID 闁哄嫬澧介妵姘跺箣閹邦喗鏆忛柟?缂傚洢鍊涙禍浼村触瀹ュ泦鐐烘晬婢跺牃鍋?
 function readFeishuAliasStore(): FeishuAliasStore {
   const filePath = path.join(resolveUserStateDir(), "credentials", FEISHU_ALIAS_STORE_FILE);
   if (!fs.existsSync(filePath)) {
@@ -1889,7 +1791,7 @@ function readFeishuAliasStore(): FeishuAliasStore {
   }
 }
 
-// 写入飞书授权别名存储。
+// 闁告劖鐟ラ崣鍡橆槹閻愭澘濮涢柟鍝勭墛濞煎牓宕氶銏″€抽悗娑櫭崑宥夊Υ?
 function writeFeishuAliasStore(store: FeishuAliasStore): void {
   const dir = path.join(resolveUserStateDir(), "credentials");
   fs.mkdirSync(dir, { recursive: true });
@@ -1897,7 +1799,7 @@ function writeFeishuAliasStore(store: FeishuAliasStore): void {
   fs.writeFileSync(filePath, JSON.stringify(store, null, 2), "utf-8");
 }
 
-// 保存单条飞书授权别名，供列表展示优先使用名称。
+// 濞ｅ洦绻傞悺銊╁础閺囩喐钂嬪瀣仒閸旂喖骞掗崼鐔哥秬闁告帩鍋勯幃鏇㈡晬鐏炶偐杩旈柛鎺擃殙閵嗗啰浠﹂弴鐘粵濞村吋锚閸樻稒鎷呯捄銊︽殢闁告艾绉惰ⅷ闁?
 function saveFeishuAlias(kind: "user" | "group", id: string, name: string): void {
   const trimmedId = String(id ?? "").trim();
   const trimmedName = String(name ?? "").trim();
@@ -1911,7 +1813,7 @@ function saveFeishuAlias(kind: "user" | "group", id: string, name: string): void
   writeFeishuAliasStore(store);
 }
 
-// 删除单条飞书授权别名。
+// 闁告帞濞€濞呭酣宕￠弴鐔歌拫濡炲鍋橀崝鐔煎箳閸喐缍€闁告帩鍋勯幃鏇㈠Υ?
 function removeFeishuAlias(kind: "user" | "group", id: string): void {
   const trimmedId = String(id ?? "").trim();
   if (!trimmedId) return;
@@ -1924,142 +1826,14 @@ function removeFeishuAlias(kind: "user" | "group", id: string): void {
   writeFeishuAliasStore(store);
 }
 
-// ── 从配置中提取当前 provider 信息（apiKey 掩码） ──
+// 闁冲厜鍋撻柍鍏夊亾 濞寸姴閰ｉ崢銈囩磾椤旀槒鍘柟缁樺姇瑜板洩銇愰幘鍐差枀 provider 濞ｅ洠鍓濇导鍛存晬閸у嵅iKey 闁硅　鏅濋悥婊堟晬?闁冲厜鍋撻柍鍏夊亾
 
-function extractProviderInfo(config: any): any {
-  const primary: string = config?.agents?.defaults?.model?.primary ?? "";
-  const providers = config?.models?.providers ?? {};
-  const env = config?.env ?? {};
 
-  // 解析 "provider/model" 格式
-  const slashIdx = primary.indexOf("/");
-  const providerKey = slashIdx > 0 ? primary.slice(0, slashIdx) : "";
-  const modelID = slashIdx > 0 ? primary.slice(slashIdx + 1) : primary;
 
-  let provider = providerKey;
-  let subPlatform = "";
-  let customPreset = "";
-  let apiKey = "";
-  let baseURL = "";
-  let api = "";
-  let supportsImage = true;
-  let configuredModels: string[] = [];
-
-  // 从 provider 入口的 models 数组提取 id 列表
-  const extractModelIds = (prov: any): string[] => {
-    if (!Array.isArray(prov?.models)) return [];
-    return prov.models.map((m: any) => (typeof m === "string" ? m : m?.id)).filter(Boolean);
-  };
-
-  // Kimi Code 特殊路径：provider key = kimi-coding
-  if (providerKey === "kimi-coding") {
-    provider = "moonshot";
-    subPlatform = "kimi-code";
-    apiKey = providers["kimi-coding"]?.apiKey ?? "";
-    configuredModels = extractModelIds(providers["kimi-coding"]);
-  } else if (providerKey === "moonshot") {
-    provider = "moonshot";
-    const prov = providers.moonshot;
-    if (prov?.baseUrl?.includes("moonshot.ai")) {
-      subPlatform = "moonshot-ai";
-    } else {
-      subPlatform = "moonshot-cn";
-    }
-    apiKey = prov?.apiKey ?? "";
-    configuredModels = extractModelIds(prov);
-  } else if (providerKey === "zai" && providers[providerKey]) {
-    const prov = providers[providerKey];
-    apiKey = prov?.apiKey ?? "";
-    baseURL = prov?.baseUrl ?? "";
-    api = prov?.api ?? "";
-    configuredModels = extractModelIds(prov);
-    if (baseURL === GLM_SUB_PLATFORMS["glm-coding"].baseUrl) {
-      provider = "glm";
-      subPlatform = "glm-coding";
-    } else if (baseURL === GLM_SUB_PLATFORMS["glm-standard"].baseUrl) {
-      provider = "glm";
-      subPlatform = "glm-standard";
-    } else {
-      const matchedPreset = Object.entries(CUSTOM_PROVIDER_PRESETS).find(
-        ([, preset]) => preset.providerKey === providerKey && preset.baseUrl === baseURL
-      );
-      if (matchedPreset) {
-        provider = "custom";
-        customPreset = matchedPreset[0];
-      }
-    }
-  } else if ((providerKey === "minimax" || providerKey === "minimax-cn") && providers[providerKey]) {
-    const prov = providers[providerKey];
-    apiKey = prov?.apiKey ?? "";
-    baseURL = prov?.baseUrl ?? "";
-    api = prov?.api ?? "";
-    configuredModels = extractModelIds(prov);
-    if (providerKey === "minimax-cn" || baseURL === MINIMAX_SUB_PLATFORMS["minimax-cn"].baseUrl) {
-      provider = "minimax";
-      subPlatform = "minimax-cn";
-    } else {
-      provider = "minimax";
-      subPlatform = "minimax-global";
-    }
-  } else if (providers[providerKey]) {
-    const prov = providers[providerKey];
-    apiKey = prov?.apiKey ?? "";
-    baseURL = prov?.baseUrl ?? "";
-    api = prov?.api ?? "";
-    configuredModels = extractModelIds(prov);
-
-    // 检查是否匹配某个 custom 预设（通过 providerKey + baseUrl 反查）
-    const matchedPreset = Object.entries(CUSTOM_PROVIDER_PRESETS).find(
-      ([, preset]) => preset.providerKey === providerKey && preset.baseUrl === baseURL
-    );
-    if (matchedPreset) {
-      // 映射回 custom provider + 预设 key，前端可恢复下拉状态
-      provider = "custom";
-      customPreset = matchedPreset[0];
-    }
-
-    // 从当前选中模型（primary）推断 custom provider 是否支持图像，避免读取到旧模型条目。
-    const models = Array.isArray(prov?.models) ? prov.models : [];
-    const matchedModel = models.find((item: any) => item && typeof item === "object" && item.id === modelID);
-    const modelEntry = matchedModel ?? models[0];
-    if (modelEntry && typeof modelEntry === "object" && Array.isArray(modelEntry.input)) {
-      supportsImage = modelEntry.input.includes("image");
-    }
-  }
-
-  // 构建所有已保存 provider 的摘要（供前端切换时自动回填）
-  const savedProviders: Record<string, any> = {};
-  for (const [key, prov] of Object.entries(providers)) {
-    if (!prov || typeof prov !== "object") continue;
-    const p = prov as any;
-    if (!p.apiKey) continue;
-    savedProviders[key] = {
-      apiKey: p.apiKey ?? "",
-      baseURL: p.baseUrl ?? "",
-      api: p.api ?? "",
-      configuredModels: extractModelIds(p),
-    };
-  }
-
-  return {
-    provider,
-    subPlatform,
-    customPreset,
-    modelID,
-    apiKey,
-    baseURL,
-    api,
-    supportsImage,
-    configuredModels,
-    raw: primary,
-    savedProviders,
-  };
-}
-
-// 合并模型列表：保留历史模型，同时用最新配置覆盖当前选中模型（如 input 能力变更）。
+// 闁告艾鐗嗛懟鐔肺熼垾宕団偓鐑藉礆濡ゅ嫨鈧啴鏁嶅顐ょ闁伙絾鐟ュ濠氬矗閸欏渚€宕圭€ｅ墎绀夐柛姘湰濡炲倿鎮介妸锔戒粯闁哄倷鍗抽崢銈囩磾椤旀娲柣鈺傜墪缂嶅宕滃澶嗗亾婢跺鍘俊顖椻偓宕団偓鐑芥晬閸繍娲?input 闁煎疇妫勬慨蹇涘矗濡粯绾柨娑橆槶閳?
 function mergeModels(provEntry: any, selectedID: string, prevModels: any[]): void {
   if (!provEntry || !prevModels.length) return;
-  const newEntry = (provEntry.models ?? [])[0]; // buildProviderConfig 生成的单条目
+  const newEntry = (provEntry.models ?? [])[0]; // buildProviderConfig 闁汇垻鍠愰崹姘舵儍閸曨偄绀嬮柡澶涚磿濞?
   const merged = [...prevModels];
   const currentIndex = merged.findIndex((m: any) => m?.id === selectedID);
   if (currentIndex >= 0) {
@@ -2077,8 +1851,8 @@ function mergeModels(provEntry: any, selectedID: string, prevModels: any[]): voi
   provEntry.models = merged;
 }
 
-// API Key 掩码：保留首尾各 4 字符
+// API Key 闁硅　鏅濋悥婊堟晬濮橆偆绠介柣锝嗙懇椤╄崵浜搁幆褎鍊?4 閻庢稒顨堥?
 function maskApiKey(key: string): string {
-  if (!key || key.length <= 8) return key ? "••••••••" : "";
-  return key.slice(0, 4) + "••••" + key.slice(-4);
+  if (!key || key.length <= 8) return key ? "********" : "";
+  return key.slice(0, 4) + "****" + key.slice(-4);
 }

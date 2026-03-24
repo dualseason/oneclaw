@@ -1,11 +1,19 @@
-; OneClaw NSIS 自定义钩子
-; 解决托盘常驻模式下 WM_CLOSE 被拦截、安装器报"无法关闭"的问题
+; OneClaw NSIS hooks.
+; Goal:
+; 1) Ensure old processes and files never block reinstall/upgrade.
+; 2) Backup existing user config and reset to a clean state for reinstall.
 
 !macro KillOneClawNamedProcesses
+  nsExec::ExecToLog 'taskkill /IM "万博虾虾.exe" /T /F'
+  nsExec::ExecToLog 'taskkill /IM "万博虾虾 Helper.exe" /T /F'
   nsExec::ExecToLog 'taskkill /IM "虾虾.exe" /T /F'
-  nsExec::ExecToLog 'taskkill /IM "OneClaw.exe" /T /F'
   nsExec::ExecToLog 'taskkill /IM "虾虾 Helper.exe" /T /F'
+  nsExec::ExecToLog 'taskkill /IM "OneClaw.exe" /T /F'
   nsExec::ExecToLog 'taskkill /IM "OneClaw Helper.exe" /T /F'
+!macroend
+
+!macro KillGatewayPortProcesses
+  nsExec::ExecToLog `"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -Command "$$ports = @(18789, 18791); $$pids = Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue | Where-Object { $$ports -contains $$_.LocalPort } | Select-Object -ExpandProperty OwningProcess -Unique; foreach ($$pid in $$pids) { Stop-Process -Id $$pid -Force -ErrorAction SilentlyContinue }"`
 !macroend
 
 !macro KillInstallDirProcesses ROOT_KEY
@@ -20,10 +28,13 @@
 !macro PurgeLegacyShortcuts
   Delete "$DESKTOP\OneClaw.lnk"
   Delete "$DESKTOP\虾虾.lnk"
+  Delete "$DESKTOP\万博虾虾.lnk"
   Delete "$SMPROGRAMS\OneClaw.lnk"
   Delete "$SMPROGRAMS\虾虾.lnk"
+  Delete "$SMPROGRAMS\万博虾虾.lnk"
   RMDir /r "$SMPROGRAMS\OneClaw"
   RMDir /r "$SMPROGRAMS\虾虾"
+  RMDir /r "$SMPROGRAMS\万博虾虾"
 !macroend
 
 !macro ForceCleanupPreviousInstall ROOT_KEY
@@ -41,35 +52,47 @@
   cleanup_done_${ROOT_KEY}:
 !macroend
 
+!macro BackupAndResetUserConfig
+  DetailPrint "Backing up and resetting %USERPROFILE%\\.openclaw\\openclaw.json"
+  nsExec::ExecToLog `"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -Command "$$stateDir = Join-Path $$env:USERPROFILE '.openclaw'; if (!(Test-Path -LiteralPath $$stateDir)) { exit 0 }; $$configPath = Join-Path $$stateDir 'openclaw.json'; if (Test-Path -LiteralPath $$configPath) { $$stamp = Get-Date -Format 'yyyyMMdd-HHmmss'; $$backupPath = Join-Path $$stateDir ('openclaw.json.before-reinstall-' + $$stamp + '.bak'); Copy-Item -LiteralPath $$configPath -Destination $$backupPath -Force -ErrorAction SilentlyContinue; Set-Content -LiteralPath $$configPath -Value '{}' -Encoding UTF8 }; $$markerFiles = @('oneclaw.config.json', 'openclaw-setup-baseline.json', 'openclaw.last-known-good.json'); foreach ($$name in $$markerFiles) { $$markerPath = Join-Path $$stateDir $$name; if (Test-Path -LiteralPath $$markerPath) { Remove-Item -LiteralPath $$markerPath -Force -ErrorAction SilentlyContinue } }"`
+!macroend
+
 !macro customInit
-  ; 升级安装前尽量把旧版主进程、Helper 和残留 runtime/node 进程全部清掉
+  ; Stop old processes first to avoid "cannot close app" install failures.
   !insertmacro KillOneClawNamedProcesses
+  !insertmacro KillGatewayPortProcesses
   !insertmacro KillInstallDirProcesses HKCU
   !insertmacro KillInstallDirProcesses HKLM
-  ; 不依赖旧卸载器，直接清理旧安装目录与注册表，避免被“应用无法关闭”弹窗卡死
+
+  ; Remove stale install directories and registry entries from both scopes.
   !insertmacro ForceCleanupPreviousInstall HKCU
   !insertmacro ForceCleanupPreviousInstall HKLM
+
+  ; Reinstall safety: backup old config and reset to clean defaults.
+  !insertmacro BackupAndResetUserConfig
   Sleep 1200
 !macroend
 
 !macro customCheckAppRunning
-  ; 覆盖默认检测逻辑：先按显示名和安装目录强制清理旧进程，避免托盘常驻导致升级中断
   !insertmacro KillOneClawNamedProcesses
+  !insertmacro KillGatewayPortProcesses
   !insertmacro KillInstallDirProcesses HKCU
   !insertmacro KillInstallDirProcesses HKLM
   Sleep 1200
 !macroend
 
 !macro customUnInit
-  ; 直接卸载当前版本时也先清理自己和 gateway 子进程，避免“应用无法关闭”
   !insertmacro KillOneClawNamedProcesses
+  !insertmacro KillGatewayPortProcesses
   !insertmacro KillInstallDirProcesses HKCU
   !insertmacro KillInstallDirProcesses HKLM
   Sleep 1200
 !macroend
 
 !macro customInstall
-  ; 回收旧版“显示名改名后”留下的可执行文件，避免升级后安装目录残留双份入口
+  ; Remove leftovers from legacy executable naming.
+  Delete "$INSTDIR\万博虾虾.exe"
+  Delete "$INSTDIR\万博虾虾 Helper.exe"
   Delete "$INSTDIR\虾虾.exe"
   Delete "$INSTDIR\虾虾 Helper.exe"
 !macroend

@@ -22,6 +22,7 @@ type LifecycleHost = {
   basePath: string;
   tab: Tab;
   chatHasAutoScrolled: boolean;
+  chatForceScrollOnNextLoad: boolean;
   chatManualRefreshInFlight: boolean;
   chatLoading: boolean;
   chatMessages: unknown[];

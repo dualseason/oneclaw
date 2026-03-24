@@ -29,6 +29,8 @@ export type ChatProps = {
   showThinking: boolean;
   loading: boolean;
   sending: boolean;
+  generatingImage?: boolean;
+  generatingImagePrompt?: string | null;
   canAbort?: boolean;
   compactionStatus?: CompactionIndicatorStatus | null;
   messages: unknown[];
@@ -63,6 +65,7 @@ export type ChatProps = {
   onToggleFocusMode: () => void;
   onDraftChange: (next: string) => void;
   onSend: () => void;
+  onGenerateImage?: () => void;
   onAbort?: () => void;
   onQueueRemove: (id: string) => void;
   onNewSession: () => void;
@@ -189,7 +192,8 @@ function renderAttachmentPreview(props: ChatProps) {
 
 export function renderChat(props: ChatProps) {
   const canCompose = props.connected;
-  const isBusy = props.sending || props.stream !== null;
+  const isGeneratingImage = Boolean(props.generatingImage);
+  const isBusy = props.sending || props.stream !== null || isGeneratingImage;
   const canAbort = Boolean(props.canAbort && props.onAbort);
   const activeSession = props.sessions?.sessions?.find((row) => row.key === props.sessionKey);
   const reasoningLevel = activeSession?.reasoningLevel ?? "off";
@@ -200,13 +204,24 @@ export function renderChat(props: ChatProps) {
   };
 
   const hasAttachments = (props.attachments?.length ?? 0) > 0;
+  const hasDraft = props.draft.trim().length > 0;
+  const canSendNow = props.connected && !isBusy && (hasDraft || hasAttachments);
+  const canGenerateImage =
+    Boolean(props.onGenerateImage) &&
+    props.connected &&
+    !isBusy &&
+    hasDraft &&
+    !hasAttachments;
   const composePlaceholder = !props.connected
     ? t("chat.placeholder.disconnected")
     : isBusy
-      ? t("chat.placeholder.busy")
+      ? isGeneratingImage
+        ? t("chat.placeholder.generatingImage")
+        : t("chat.placeholder.busy")
       : hasAttachments
         ? t("chat.placeholder.image")
         : t("chat.placeholder");
+  const generatingImagePrompt = (props.generatingImagePrompt ?? "").trim();
 
   const splitRatio = props.splitRatio ?? 0.6;
   const sidebarOpen = Boolean(props.sidebarOpen && props.onCloseSidebar);
@@ -271,6 +286,16 @@ export function renderChat(props: ChatProps) {
       ${props.disabledReason ? html`<div class="callout">${props.disabledReason}</div>` : nothing}
 
       ${props.error ? html`<div class="callout danger">${props.error}</div>` : nothing}
+
+      ${isGeneratingImage
+        ? html`
+            <div class="callout" role="status" aria-live="polite">
+              ${generatingImagePrompt
+                ? `${t("chat.generatingImageStatus")} ${generatingImagePrompt}`
+                : t("chat.placeholder.generatingImage")}
+            </div>
+          `
+        : nothing}
 
       ${
         props.focusMode
@@ -395,7 +420,7 @@ export function renderChat(props: ChatProps) {
                   return;
                 }
                 e.preventDefault();
-                if (canCompose) {
+                if (canCompose && canSendNow) {
                   props.onSend();
                 }
               }}
@@ -416,12 +441,14 @@ export function renderChat(props: ChatProps) {
                   @click=${props.onAbort}
                   title=${t("chat.stop")}
                 >${icons.stop}</button>`
-              : html`<button
-                  class="btn primary"
-                  ?disabled=${!props.connected}
-                  @click=${props.onSend}
-                  title=${t("chat.send")}
-                >${icons.arrowUp}</button>`
+              : html`
+                  <button
+                    class="btn primary"
+                    ?disabled=${!canSendNow}
+                    @click=${props.onSend}
+                    title=${t("chat.send")}
+                  >${icons.arrowUp}</button>
+                `
             }
           </div>
         </div>
@@ -507,7 +534,7 @@ function buildChatItems(props: ChatProps): Array<ChatItem | MessageGroup> {
       continue;
     }
 
-    if (!props.showThinking && normalized.role.toLowerCase() === "toolresult") {
+    if (!props.showThinking && normalized.role.toLowerCase() === "toolresult" && !messageHasRenderableImage(msg)) {
       continue;
     }
 
@@ -542,6 +569,31 @@ function buildChatItems(props: ChatProps): Array<ChatItem | MessageGroup> {
   }
 
   return groupMessages(items);
+}
+
+function messageHasRenderableImage(message: unknown): boolean {
+  const m = message as Record<string, unknown>;
+  const content = Array.isArray(m.content) ? m.content : [];
+  return content.some((block) => {
+    if (!block || typeof block !== "object") {
+      return false;
+    }
+    const item = block as Record<string, unknown>;
+    if (item.type === "image_url") {
+      return typeof (item.image_url as Record<string, unknown> | undefined)?.url === "string";
+    }
+    if (item.type !== "image") {
+      return false;
+    }
+    if (typeof item.url === "string" && item.url.trim()) {
+      return true;
+    }
+    const source = item.source as Record<string, unknown> | undefined;
+    if (source?.type === "base64" && typeof source.data === "string" && source.data.trim()) {
+      return true;
+    }
+    return typeof item.data === "string" && item.data.trim().length > 0;
+  });
 }
 
 function messageKey(message: unknown, index: number): string {

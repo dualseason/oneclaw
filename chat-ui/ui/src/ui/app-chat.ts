@@ -13,11 +13,15 @@ import { generateUUID } from "./uuid.ts";
 
 export type ChatHost = {
   connected: boolean;
+  lastError: string | null;
   chatMessage: string;
+  chatMessages: unknown[];
   chatAttachments: ChatAttachment[];
   chatQueue: ChatQueueItem[];
   chatRunId: string | null;
   chatSending: boolean;
+  chatGeneratingImage: boolean;
+  chatGeneratingImagePrompt: string | null;
   sessionKey: string;
   basePath: string;
   hello: GatewayHelloOk | null;
@@ -28,7 +32,7 @@ export type ChatHost = {
 
 
 export function isChatBusy(host: ChatHost) {
-  return host.chatSending || Boolean(host.chatRunId);
+  return host.chatSending || host.chatGeneratingImage || Boolean(host.chatRunId);
 }
 
 export function isChatStopCommand(text: string) {
@@ -79,6 +83,26 @@ export async function handleAbortChat(host: ChatHost) {
   }
   host.chatMessage = "";
   await abortChatRun(host as unknown as OpenClawApp);
+}
+
+function appendLocalMessage(host: ChatHost, message: unknown) {
+  host.chatMessages = [...host.chatMessages, message];
+}
+
+function buildTextMessage(role: "user" | "assistant", text: string): unknown {
+  return {
+    role,
+    content: [{ type: "text", text }],
+    timestamp: Date.now(),
+  };
+}
+
+function buildImageMessage(url: string): unknown {
+  return {
+    role: "assistant",
+    content: [{ type: "image_url", image_url: { url } }],
+    timestamp: Date.now(),
+  };
 }
 
 function enqueueChatMessage(
@@ -196,6 +220,68 @@ async function flushChatQueue(host: ChatHost) {
 
 export function removeQueuedMessage(host: ChatHost, id: string) {
   host.chatQueue = host.chatQueue.filter((item) => item.id !== id);
+}
+
+export async function handleGenerateImage(host: ChatHost) {
+  if (!host.connected) {
+    return false;
+  }
+  const prompt = host.chatMessage.trim();
+  if (!prompt) {
+    return false;
+  }
+  if ((host.chatAttachments?.length ?? 0) > 0) {
+    host.lastError = t("chat.generateImageNoAttachments");
+    return false;
+  }
+  if (isChatBusy(host)) {
+    host.lastError = t("chat.generateImageBusy");
+    return false;
+  }
+
+  host.chatMessage = "";
+  host.lastError = null;
+  host.chatGeneratingImage = true;
+  host.chatGeneratingImagePrompt = prompt;
+  appendLocalMessage(host, buildTextMessage("user", prompt));
+  syncSessionLabelAfterSend(host, prompt);
+  setLastActiveSessionKey(
+    host as unknown as Parameters<typeof setLastActiveSessionKey>[0],
+    host.sessionKey,
+  );
+  scheduleChatScroll(host as unknown as Parameters<typeof scheduleChatScroll>[0]);
+
+  try {
+    const result = await (window as any).oneclaw?.generateImage?.({ prompt });
+    if (result?.success && typeof result?.data?.url === "string" && result.data.url.trim()) {
+      appendLocalMessage(host, buildImageMessage(result.data.url.trim()));
+      scheduleChatScroll(host as unknown as Parameters<typeof scheduleChatScroll>[0]);
+      return true;
+    }
+
+    const failure = typeof result?.message === "string" && result.message.trim()
+      ? result.message.trim()
+      : t("chat.generateImageFailed");
+    host.lastError = failure;
+    appendLocalMessage(
+      host,
+      buildTextMessage("assistant", `${t("chat.generateImageFailed")}: ${failure}`),
+    );
+    scheduleChatScroll(host as unknown as Parameters<typeof scheduleChatScroll>[0]);
+    return false;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    host.lastError = `${t("chat.generateImageFailed")}: ${message}`;
+    appendLocalMessage(host, buildTextMessage("assistant", host.lastError));
+    scheduleChatScroll(host as unknown as Parameters<typeof scheduleChatScroll>[0]);
+    return false;
+  } finally {
+    host.chatGeneratingImage = false;
+    host.chatGeneratingImagePrompt = null;
+    if (!host.chatRunId) {
+      void flushChatQueue(host);
+    }
+  }
 }
 
 export async function handleSendChat(

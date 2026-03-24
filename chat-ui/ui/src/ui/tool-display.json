@@ -83,6 +83,12 @@
       "label": "image",
       "detailKeys": ["path", "url"]
     },
+    "oneclaw_generate_image": {
+      "icon": "image",
+      "title": "Wanboshan Image",
+      "label": "Wanboshan Image",
+      "detailKeys": ["prompt", "size", "quality"]
+    },
     "sessions_list": {
       "icon": "list",
       "title": "Sessions List",

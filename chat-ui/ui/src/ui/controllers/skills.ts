@@ -1,5 +1,6 @@
 import type { GatewayBrowserClient } from "../gateway.ts";
 import type { SkillStatusReport } from "../types.ts";
+import { filterHiddenSkillStatusReport } from "../skill-visibility.ts";
 
 export type SkillsState = {
   client: GatewayBrowserClient | null;
@@ -58,7 +59,7 @@ export async function loadSkills(state: SkillsState, options?: LoadSkillsOptions
   try {
     const res = await state.client.request<SkillStatusReport | undefined>("skills.status", {});
     if (res) {
-      state.skillsReport = res;
+      state.skillsReport = filterHiddenSkillStatusReport(res) ?? null;
     }
   } catch (err) {
     state.skillsError = getErrorMessage(err);

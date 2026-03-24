@@ -10,6 +10,7 @@ import {
   WINDOW_MIN_WIDTH,
   WINDOW_MIN_HEIGHT,
   resolveChatUiPath,
+  resolveWindowIconPath,
 } from "./constants";
 
 interface ShowOptions {
@@ -61,6 +62,7 @@ export class WindowManager {
       minWidth: WINDOW_MIN_WIDTH,
       minHeight: WINDOW_MIN_HEIGHT,
       show: false,
+      icon: resolveWindowIconPath(),
       title,
       autoHideMenuBar: true,
       titleBarStyle: "hidden",

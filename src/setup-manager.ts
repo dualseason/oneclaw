@@ -1,6 +1,7 @@
 import { BrowserWindow, app } from "electron";
 import * as path from "path";
 import * as analytics from "./analytics";
+import { resolveWindowIconPath } from "./constants";
 
 // Setup 窗口生命周期管理
 export class SetupManager {
@@ -17,12 +18,13 @@ export class SetupManager {
   showSetup(): void {
     // 标题本地化
     const lang = app.getLocale().startsWith("zh") ? "zh" : "en";
-    const title = lang === "zh" ? "虾虾 安装引导" : "虾虾 Setup";
+    const title = lang === "zh" ? "虾虾 安装引导" : "Xiāxiā Setup";
 
     this.setupWin = new BrowserWindow({
       width: 580,
       height: 680,
       resizable: false,
+      icon: resolveWindowIconPath(),
       title,
       autoHideMenuBar: true,
       webPreferences: {
@@ -39,7 +41,7 @@ export class SetupManager {
     this.setupWin.setMenuBarVisibility(false);
     this.setupWin.removeMenu();
 
-    // Setup 窗口关闭 → 直接退出应用
+    // Setup 窗口关闭 -> 直接退出应用
     this.setupWin.on("close", () => {
       analytics.trackSetupAbandoned({ trigger: "window_close" });
       app.quit();
@@ -67,7 +69,7 @@ export class SetupManager {
       this.setupWin = null;
       return true;
     } catch (err) {
-      console.error("[setup] onComplete 回调错误:", err);
+      console.error("[setup] onComplete callback error:", err);
       return false;
     } finally {
       this.completing = false;

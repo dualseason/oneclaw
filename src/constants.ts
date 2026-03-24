@@ -3,6 +3,7 @@ import * as path from "path";
 import * as fs from "fs";
 import { isSetupCompleteFromConfig } from "./setup-completion";
 import { readOneclawConfig } from "./oneclaw-config";
+import { parseJsonText } from "./json-utils";
 
 // ── 网络端口 ──
 
@@ -18,7 +19,7 @@ export function resolveGatewayPort(): number {
   }
   try {
     const raw = fs.readFileSync(resolveUserConfigPath(), "utf-8");
-    const cfg = JSON.parse(raw);
+    const cfg = parseJsonText<any>(raw);
     const configPort = cfg?.gateway?.port;
     if (typeof configPort === "number" && Number.isFinite(configPort) && configPort > 0) {
       return configPort;
@@ -195,6 +196,22 @@ export function resolveChatUiPath(): string {
   return path.join(app.getAppPath(), "chat-ui", "dist", "index.html");
 }
 
+export function resolveWindowIconPath(): string {
+  const iconFile = IS_WIN ? "icon.ico" : "icon.png";
+  if (app.isPackaged) {
+    const candidates = [
+      path.join(process.resourcesPath, "resources", iconFile),
+      path.join(process.resourcesPath, "app.asar", "assets", iconFile),
+    ];
+    for (const candidate of candidates) {
+      try {
+        if (fs.existsSync(candidate)) return candidate;
+      } catch {}
+    }
+  }
+  return path.join(app.getAppPath(), "assets", iconFile);
+}
+
 // ── Setup 完成判断 ──
 
 /** 检查 Setup 是否已完成（优先读 oneclaw.config.json，兼容旧版） */
@@ -208,7 +225,7 @@ export function isSetupComplete(): boolean {
   if (!fs.existsSync(configPath)) return false;
   try {
     const raw = fs.readFileSync(configPath, "utf-8");
-    const config = JSON.parse(raw);
+    const config = parseJsonText<any>(raw);
     return isSetupCompleteFromConfig(config);
   } catch {
     return false;

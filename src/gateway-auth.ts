@@ -1,7 +1,8 @@
 import * as crypto from "crypto";
 import * as fs from "fs";
 import { resolveUserConfigPath } from "./constants";
-import { backupCurrentUserConfig } from "./config-backup";
+import { parseJsonText } from "./json-utils";
+import { writeUserConfig } from "./provider-config";
 
 type GatewayConfig = Record<string, any>;
 interface ResolveTokenOptions {
@@ -67,7 +68,7 @@ export function resolveGatewayAuthToken(opts: ResolveTokenOptions = {}): string 
   let config: GatewayConfig;
   try {
     const raw = fs.readFileSync(configPath, "utf-8");
-    config = JSON.parse(raw);
+    config = parseJsonText(raw);
   } catch {
     return crypto.randomBytes(16).toString("hex");
   }
@@ -79,14 +80,14 @@ export function resolveGatewayAuthToken(opts: ResolveTokenOptions = {}): string 
   }
 
   const before = JSON.stringify(config);
+  const hadLegacyOneclawTopLevel = Object.prototype.hasOwnProperty.call(config, "oneclaw");
   const token = ensureGatewayAuthTokenInConfig(config);
   const after = JSON.stringify(config);
 
-  if (before !== after) {
+  if (before !== after || hadLegacyOneclawTopLevel) {
     try {
       // 自动补全 token 前先备份旧配置，保证每次变更都可回退。
-      backupCurrentUserConfig();
-      fs.writeFileSync(configPath, JSON.stringify(config, null, 2), "utf-8");
+      writeUserConfig(config);
     } catch {}
   }
 

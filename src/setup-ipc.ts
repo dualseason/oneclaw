@@ -30,6 +30,7 @@ interface SetupIpcDeps {
 }
 
 let latestSetupCompletedProps: Record<string, string> | null = null;
+const ONECLAW_IMAGE_GENERATION_PLUGIN_ID = "oneclaw-image-generation";
 
 type SetupActionResult = {
   success: boolean;
@@ -182,6 +183,8 @@ export function registerSetupIpc(deps: SetupIpcDeps): void {
         config.agents ??= {};
         config.agents.defaults ??= {};
         config.agents.defaults.model ??= {};
+        config.plugins ??= {};
+        config.plugins.entries ??= {};
         // 长对话压缩保护：保留最近轮次原文、审计摘要质量、守住关键标识符
         config.agents.defaults.compaction ??= {};
         config.agents.defaults.compaction.mode = "safeguard";
@@ -219,6 +222,18 @@ export function registerSetupIpc(deps: SetupIpcDeps): void {
         config.channels ??= {};
         config.channels.imessage ??= {};
         config.channels.imessage.enabled = false;
+
+        const existingImageGenerationPlugin =
+          typeof config.plugins.entries[ONECLAW_IMAGE_GENERATION_PLUGIN_ID] === "object" &&
+          config.plugins.entries[ONECLAW_IMAGE_GENERATION_PLUGIN_ID] !== null
+            ? config.plugins.entries[ONECLAW_IMAGE_GENERATION_PLUGIN_ID]
+            : {};
+        if (!Object.prototype.hasOwnProperty.call(existingImageGenerationPlugin, "enabled")) {
+          config.plugins.entries[ONECLAW_IMAGE_GENERATION_PLUGIN_ID] = {
+            ...existingImageGenerationPlugin,
+            enabled: true,
+          };
+        }
 
         // 禁止 gateway 自行检查 npm 更新（OneClaw 整包打包，用户无法独立更新 gateway）
         config.update ??= {};

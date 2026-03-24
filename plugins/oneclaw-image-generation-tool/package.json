@@ -1,0 +1,17 @@
+{
+  "name": "@oneclaw/image-generation-tool",
+  "version": "0.1.0",
+  "private": true,
+  "description": "OneClaw bundled image generation tool for OpenClaw",
+  "main": "index.js",
+  "files": [
+    "index.js",
+    "openclaw.plugin.json",
+    "skills"
+  ],
+  "openclaw": {
+    "extensions": [
+      "./index.js"
+    ]
+  }
+}
